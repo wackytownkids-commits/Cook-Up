@@ -1,0 +1,350 @@
+/* Cookup - stove/kitchen vibe on a dark base */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  color: #e8e8ea;
+  background: radial-gradient(1200px 800px at 20% -10%, #22161a 0%, #0e0a0c 55%);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow-x: hidden;
+}
+
+/* ---------- header ---------- */
+
+header.drag {
+  -webkit-app-region: drag;
+  display: flex; align-items: center; gap: 10px;
+  padding: 34px 18px 8px;
+}
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  font-weight: 700; letter-spacing: 0.5px; font-size: 13px; color: #f2f2f5;
+}
+.flame-mark {
+  width: 10px; height: 14px;
+  background: linear-gradient(180deg, #ff4b6e 0%, #ffb454 85%, #fff3c8 100%);
+  border-radius: 50% 50% 50% 50% / 70% 70% 30% 30%;
+  box-shadow: 0 0 12px rgba(255,122,82,0.55);
+}
+.status-pill {
+  -webkit-app-region: no-drag;
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px; color: #aaaab2;
+  margin-left: auto;
+}
+.status-pill .pulse {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #ffb454;
+  box-shadow: 0 0 8px #ffb454;
+  animation: pulse 1.3s ease-in-out infinite;
+}
+.status-pill.ready .pulse { background: #6be06b; box-shadow: 0 0 8px #6be06b; animation: none; }
+.status-pill.err .pulse   { background: #ff4b6e; box-shadow: 0 0 8px #ff4b6e; animation: none; }
+@keyframes pulse { 0%,100% { opacity: .4 } 50% { opacity: 1 } }
+
+.icon-btn {
+  -webkit-app-region: no-drag;
+  background: transparent; color: #9a9aa3; border: none;
+  font-size: 16px; cursor: pointer; padding: 6px 8px; border-radius: 6px;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.06); color: #fff; }
+
+/* ---------- layout ---------- */
+
+main {
+  padding: 6px 18px 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+
+.card {
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.lbl {
+  display: block;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
+  color: #8a8a92; margin-bottom: 8px;
+}
+.muted { color: #6c6c74; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.small { font-size: 11px; }
+
+textarea, input, select {
+  width: 100%;
+  background: #121217;
+  color: #eaeaec;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px; font-family: inherit; outline: none; resize: vertical;
+}
+textarea:focus, input:focus, select:focus {
+  border-color: #ff7a52;
+  box-shadow: 0 0 0 2px rgba(255,122,82,0.18);
+}
+
+.row { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.row.end { justify-content: flex-end; }
+
+button.ghost {
+  background: rgba(255,255,255,0.05);
+  color: #d9d9dd;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px; cursor: pointer;
+}
+button.ghost:hover { background: rgba(255,255,255,0.09); }
+
+/* ---------- ingredients list ---------- */
+
+.songs { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.songs li {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #121217; border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px;
+}
+.songs .rm { background: transparent; border: none; color: #ff4b6e; cursor: pointer; font-size: 14px; }
+
+/* ---------- stove card ---------- */
+
+.stove {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 18px;
+  align-items: center;
+}
+
+.burner-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.burner-caption { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 1.5px; }
+
+.burner {
+  position: relative;
+  width: 130px; height: 130px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #2a2a33 0%, #161619 60%, #0a0a0c 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255,255,255,0.05),
+    inset 0 3px 8px rgba(0,0,0,0.6),
+    0 6px 18px rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.burner-glow {
+  position: absolute; inset: 15px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,75,110,0.55) 0%, rgba(255,122,82,0.35) 40%, rgba(255,180,84,0.0) 75%);
+  filter: blur(8px);
+  opacity: 0.55;
+  transition: opacity 200ms ease;
+}
+.burner.hot .burner-glow { opacity: 1; animation: heat-flicker 1.6s ease-in-out infinite; }
+@keyframes heat-flicker {
+  0%,100% { transform: scale(1); opacity: 0.9; }
+  50%     { transform: scale(1.06); opacity: 1; }
+}
+
+.burner-grate { position: absolute; inset: 18px; border-radius: 50%; pointer-events: none; }
+.burner-grate span {
+  position: absolute; left: 50%; top: 50%;
+  width: 2px; height: 44px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.55), rgba(0,0,0,0.15));
+  transform-origin: 50% 0%;
+  transform: translate(-50%, 0) rotate(calc(var(--i, 0) * 45deg));
+}
+.burner-grate span:nth-child(1){ --i: 0 }
+.burner-grate span:nth-child(2){ --i: 1 }
+.burner-grate span:nth-child(3){ --i: 2 }
+.burner-grate span:nth-child(4){ --i: 3 }
+.burner-grate span:nth-child(5){ --i: 4 }
+.burner-grate span:nth-child(6){ --i: 5 }
+.burner-grate span:nth-child(7){ --i: 6 }
+.burner-grate span:nth-child(8){ --i: 7 }
+
+.burner-knob {
+  position: absolute;
+  width: 58px; height: 58px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, #3a3a44 0%, #1b1b22 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.14),
+    inset 0 -4px 6px rgba(0,0,0,0.5),
+    0 4px 10px rgba(0,0,0,0.5);
+  cursor: grab;
+  display: flex; align-items: flex-start; justify-content: center;
+  transform: rotate(0deg);
+  transition: transform 120ms ease;
+}
+.burner-knob:active { cursor: grabbing; }
+.knob-pointer {
+  width: 3px; height: 14px;
+  background: linear-gradient(180deg, #ffb454, #ff4b6e);
+  border-radius: 2px;
+  margin-top: 6px;
+  box-shadow: 0 0 6px rgba(255,122,82,0.8);
+}
+
+.burner-readout {
+  position: absolute;
+  bottom: -4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: #cfcfd6;
+  display: flex; align-items: baseline; gap: 4px;
+}
+.burner-readout #bpm-value { font-size: 13px; font-weight: 700; color: #fff; }
+.burner-readout .unit { color: #8a8a92; font-size: 9px; letter-spacing: 1px; }
+
+/* ---------- heat buttons ---------- */
+
+.stove-controls { display: flex; flex-direction: column; gap: 10px; }
+
+.heat-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: #121217;
+  border-radius: 10px;
+  padding: 4px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+.heat {
+  border: none;
+  background: transparent;
+  color: #9a9aa3;
+  padding: 8px 0;
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.heat:hover { color: #fff; }
+.heat.active {
+  color: #1a1015;
+  background: linear-gradient(135deg, #ffb454, #ff7a52);
+  box-shadow: 0 2px 8px rgba(255,122,82,0.35);
+}
+.heat[data-heat="simmer"].active { background: linear-gradient(135deg, #ffe7a8, #ffb454); }
+.heat[data-heat="flambe"].active { background: linear-gradient(135deg, #ff7a52, #ff4b6e); }
+
+/* ---------- cook button + flames ---------- */
+
+.cook-wrap { position: relative; padding-top: 24px; margin-top: 4px; }
+
+.flames {
+  position: absolute;
+  left: 10%; right: 10%; bottom: -6px;
+  height: 80px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.flames.on { opacity: 1; }
+
+.flame {
+  position: absolute;
+  bottom: 0;
+  width: 18px; height: 30px;
+  background: linear-gradient(180deg, #ff4b6e 0%, #ff7a52 50%, #ffb454 100%);
+  border-radius: 50% 50% 50% 50% / 70% 70% 30% 30%;
+  filter: blur(0.5px);
+  transform-origin: 50% 100%;
+  animation: flicker 0.5s ease-in-out infinite alternate;
+}
+.flame.f1 { left: 5%;  height: 28px; animation-duration: 0.42s; }
+.flame.f2 { left: 22%; height: 44px; animation-duration: 0.6s; }
+.flame.f3 { left: 45%; height: 54px; animation-duration: 0.48s; width: 22px; }
+.flame.f4 { left: 68%; height: 40px; animation-duration: 0.55s; }
+.flame.f5 { left: 88%; height: 32px; animation-duration: 0.45s; }
+@keyframes flicker {
+  from { transform: scale(1, 1)    skewX(-4deg); opacity: 0.85; }
+  to   { transform: scale(1.1, 1.2) skewX(4deg);  opacity: 1;    }
+}
+
+button.go {
+  width: 100%;
+  background: linear-gradient(135deg, #ff4b6e, #ffb454);
+  border: none;
+  color: #1a1015;
+  font-weight: 800;
+  padding: 16px;
+  border-radius: 14px;
+  font-size: 16px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 8px 28px rgba(255,75,110,0.3);
+  position: relative;
+  z-index: 2;
+}
+button.go.small {
+  padding: 8px 14px; font-size: 12px; border-radius: 8px; letter-spacing: 0.5px;
+  text-transform: none; font-weight: 700;
+}
+button.go:hover { filter: brightness(1.05); }
+button.go:active { transform: translateY(1px); }
+button.go:disabled { opacity: 0.75; cursor: wait; }
+
+/* ---------- status + result ---------- */
+
+.status {
+  display: flex; align-items: center; gap: 10px;
+  color: #bdbdc4; font-size: 12px; padding: 4px 2px;
+}
+.spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.15); border-top-color: #ff7a52;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.result .title { font-size: 13px; color: #fff; margin: 4px 0 12px; word-break: break-all; }
+
+.drag-handle {
+  -webkit-user-drag: element;
+  display: flex; align-items: center; gap: 10px; justify-content: center;
+  background: linear-gradient(180deg, #22222a, #16161c);
+  border: 1px dashed rgba(255,180,84,0.4);
+  color: #ffb454;
+  border-radius: 10px;
+  padding: 18px;
+  cursor: grab;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+.drag-handle:active { cursor: grabbing; }
+.drag-handle .drag-icon { font-size: 18px; }
+
+.hidden { display: none !important; }
+
+/* ---------- modal ---------- */
+
+.modal {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px;
+  z-index: 10;
+}
+.modal-card {
+  width: 100%; max-width: 420px;
+  background: #15151b;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 18px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.modal-card h3 { margin: 0 0 6px; font-size: 14px; }
+.modal-card .lbl { margin-top: 6px; margin-bottom: 4px; }

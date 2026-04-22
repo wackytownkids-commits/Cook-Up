@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1f2026"/>
+      <stop offset="100%" stop-color="#0a0a0c"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="28%" cy="18%" r="55%">
+      <stop offset="0%"  stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="60%" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- True radial glow behind the flame, fades smoothly to transparent -->
+    <radialGradient id="heat" cx="50%" cy="64%" r="45%">
+      <stop offset="0%"   stop-color="#ff4b6e" stop-opacity="0.55"/>
+      <stop offset="40%"  stop-color="#ff4b6e" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#ff4b6e" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="flame" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0%"   stop-color="#ffcf5a"/>
+      <stop offset="45%"  stop-color="#ff7a52"/>
+      <stop offset="100%" stop-color="#ff4b6e"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0.5" y1="1" x2="0.5" y2="0">
+      <stop offset="0%"   stop-color="#fff3c8"/>
+      <stop offset="60%"  stop-color="#ffcf5a"/>
+      <stop offset="100%" stop-color="#ff7a52"/>
+    </linearGradient>
+    <radialGradient id="core" cx="50%" cy="72%" r="35%">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="70%"  stop-color="#fff3c8" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ffcf5a" stop-opacity="0"/>
+    </radialGradient>
+
+    <clipPath id="tile">
+      <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#sheen)"/>
+
+    <!-- Full-tile heat gradient, no hard edge -->
+    <rect width="1024" height="1024" fill="url(#heat)"/>
+
+    <!-- Flame silhouette -->
+    <path d="
+      M 512 150
+      C 540 210, 560 250, 580 300
+      C 620 380, 660 450, 660 550
+      C 660 710, 590 830, 512 830
+      C 434 830, 364 710, 364 550
+      C 364 450, 404 380, 444 300
+      C 464 250, 484 210, 512 150 Z"
+      fill="url(#flame)"/>
+
+    <!-- Inner flame -->
+    <path d="
+      M 512 310
+      C 528 350, 545 380, 560 420
+      C 580 475, 595 520, 590 580
+      C 580 680, 545 740, 512 750
+      C 479 740, 444 680, 434 580
+      C 429 520, 444 475, 464 420
+      C 479 380, 496 350, 512 310 Z"
+      fill="url(#inner)"/>
+
+    <!-- White-hot core -->
+    <ellipse cx="512" cy="620" rx="42" ry="68" fill="url(#core)"/>
+
+    <rect x="0.5" y="0.5" width="1023" height="1023" rx="230" ry="230"
+          fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
+  </g>
+</svg>

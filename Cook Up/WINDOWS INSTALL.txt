@@ -1,0 +1,78 @@
+INSTALL COOKUP ON WINDOWS
+
+Cookup runs on Windows 10 and Windows 11 (x64 PCs).
+
+--------------------------------------------------
+WHERE TO GET THE INSTALLER
+--------------------------------------------------
+After your GitHub Actions build finishes (see GITHUB SETUP.txt):
+
+   1. Go to your Cookup repo page on github.com.
+   2. Click the Actions tab.
+   3. Click the most recent successful build (green check).
+   4. Scroll down to "Artifacts."
+   5. Download "Cookup-Windows-exe" - it comes as a .zip file.
+   6. Unzip it. Inside is "Cookup-Setup-0.1.0.exe".
+
+--------------------------------------------------
+INSTALLING
+--------------------------------------------------
+   7. Double-click Cookup-Setup-0.1.0.exe.
+
+   8. First time: Windows SmartScreen may pop up saying
+      "Windows protected your PC. Microsoft Defender SmartScreen
+       prevented an unrecognized app from starting."
+      This happens because we haven't paid for a Windows code-signing
+      cert. To proceed:
+         - Click "More info"
+         - Click "Run anyway"
+      This warning goes away forever once you install. It's the
+      Windows equivalent of the Mac right-click-to-open prompt.
+
+   9. The installer walks you through the normal Windows steps
+      (license, install location, Start menu shortcut, desktop
+      shortcut). Defaults are fine.
+
+  10. Click Install. It takes a few seconds.
+
+  11. Launch Cookup from the Start menu or desktop shortcut.
+
+--------------------------------------------------
+FIRST TIME YOU COOK
+--------------------------------------------------
+  12. The top-right pill says "Oven up" once the Python server
+      starts (a few seconds).
+  13. First Cook loads the MusicGen model into RAM. This takes
+      45-90 seconds on a typical PC CPU (Windows PCs without a
+      NVIDIA GPU run the model on CPU, which is slower than a
+      Mac M-chip).
+  14. Subsequent Cooks are much faster - around 30-60 seconds
+      for a 15-second beat.
+
+--------------------------------------------------
+IF YOU HAVE AN NVIDIA GPU
+--------------------------------------------------
+If your PC has a recent NVIDIA card, MusicGen can use CUDA and
+run ~5x faster. Out of the box Cookup uses the CPU build of
+PyTorch for maximum compatibility. To switch to CUDA, swap the
+pip install line in scripts/bundle-python.ps1 that installs
+torch to use the CUDA wheel index:
+
+   pip install torch>=2.1 torchaudio>=2.1 --index-url https://download.pytorch.org/whl/cu121
+
+Rebuild via GitHub Actions. The new installer will use your GPU.
+
+--------------------------------------------------
+DRAGGING INTO YOUR DAW
+--------------------------------------------------
+Cookup on Windows works with any DAW that accepts drag-and-drop
+WAV files - FL Studio, Ableton Live, Studio One, Reaper, etc.
+Drag the "Drag into Logic" tile onto a track in your DAW.
+(The tile is named Logic because the app was originally for Logic,
+but the drag-and-drop behavior is generic.)
+
+--------------------------------------------------
+UNINSTALLING
+--------------------------------------------------
+Settings > Apps > Installed apps > Cookup > Uninstall.
+Or run the uninstaller from C:\Users\<you>\AppData\Local\Programs\Cookup.
