@@ -1,0 +1,120 @@
+{
+  "name": "cookup",
+  "version": "0.1.0",
+  "description": "Cookup - prompt + reference songs into an AI beat you drag straight into your DAW.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "bundle:python:mac": "bash scripts/bundle-python.sh",
+    "bundle:python:win": "powershell -ExecutionPolicy Bypass -File scripts/bundle-python.ps1",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:mac": "npm run bundle:python:mac && electron-builder --mac",
+    "dist:win": "npm run bundle:python:win && electron-builder --win"
+  },
+  "author": "Cory",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "dependencies": {
+    "electron-log": "^5.4.3",
+    "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.3",
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "build": {
+    "appId": "com.cory.cookup",
+    "productName": "Cookup",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "!**/__pycache__/**",
+      "!**/*.pyc"
+    ],
+    "extraResources": [
+      {
+        "from": "python-runtime",
+        "to": "python-runtime",
+        "filter": [
+          "**/*",
+          "!**/__pycache__/**",
+          "!**/*.pyc",
+          "!**/tests/**"
+        ]
+      }
+    ],
+    "asarUnpack": [
+      "src/musicgen_server.py"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.music",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Cookup",
+      "backgroundColor": "#0e0a0c",
+      "contents": [
+        {
+          "x": 140,
+          "y": 200,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 200,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "Cookup-Setup-${version}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cookup"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "wackytownkids-commits",
+        "repo": "Cook-Up"
+      }
+    ]
+  }
+}

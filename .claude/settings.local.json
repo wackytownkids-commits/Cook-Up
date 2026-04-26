@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node -e \"try{require\\('to-ico'\\);console.log\\('to-ico ok'\\)}catch\\(e\\){console.log\\('no to-ico'\\)}\")",
+      "Bash(node -e ' *)"
+    ]
+  }
+}

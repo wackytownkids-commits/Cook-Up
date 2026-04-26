@@ -1,0 +1,82 @@
+name: Build Cookup
+
+# Run whenever code is pushed to the main branch, or on manual trigger
+# from the Actions tab (the "Run workflow" button).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# All of Cookup's source code lives inside the "Cook Up" subfolder of the repo,
+# so every shell command runs from in there.
+defaults:
+  run:
+    working-directory: 'Cook Up'
+
+jobs:
+  # ---------------- Mac (Apple Silicon) ----------------
+  build-mac:
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Electron dependencies
+        run: npm install
+
+      - name: Bundle portable Python + MusicGen (Mac)
+        run: bash scripts/bundle-python.sh
+
+      - name: Build Cookup.app and DMG
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --mac
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cookup-Mac-dmg
+          path: 'Cook Up/dist/*.dmg'
+          retention-days: 30
+          if-no-files-found: error
+
+  # ---------------- Windows (x64) ----------------
+  build-win:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Electron dependencies
+        run: npm install
+
+      - name: Bundle portable Python + MusicGen (Windows)
+        shell: pwsh
+        run: ./scripts/bundle-python.ps1
+
+      - name: Build Cookup Windows installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx electron-builder --win
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cookup-Windows-exe
+          path: 'Cook Up/dist/*.exe'
+          retention-days: 30
+          if-no-files-found: error
