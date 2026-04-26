@@ -34,6 +34,8 @@
       "renderer/**/*",
       "src/**/*",
       "assets/**/*",
+      "build/icon.ico",
+      "build/icon.png",
       "!**/__pycache__/**",
       "!**/*.pyc"
     ],

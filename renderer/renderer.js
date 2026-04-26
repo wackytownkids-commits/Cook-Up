@@ -179,7 +179,9 @@ window.api.onProgress((msg) => { statusText.textContent = msg; });
 let cookStart = 0;
 let cookEstimateSec = 0;
 let cookTimer = null;
-let tqdmEverUpdated = false;
+let modelProgressSeen = false;
+let lastDone = 0;
+let lastTotal = 0;
 
 function fmtTime(sec) {
   sec = Math.max(0, Math.floor(sec));
@@ -190,31 +192,37 @@ function fmtTime(sec) {
 
 function startCookTimer(durationSec) {
   cookStart = Date.now();
-  tqdmEverUpdated = false;
+  modelProgressSeen = false;
+  lastDone = 0;
+  lastTotal = 0;
   const modelWarm = ovenPill.classList.contains('ready');
-  // Base guess: each output-second takes about 18 wall-seconds on a typical
-  // CPU. Plus 90s if the model hasn't been loaded yet this session.
   const coldPenalty = modelWarm ? 0 : 90;
   cookEstimateSec = durationSec * 18 + coldPenalty;
   if (cookTimer) clearInterval(cookTimer);
-  cookTimer = setInterval(tickCookTimer, 500);
+  cookTimer = setInterval(tickCookTimer, 250);
   tickCookTimer();
 }
 
 function tickCookTimer() {
   const elapsed = (Date.now() - cookStart) / 1000;
+  let pct, remaining;
 
-  // If we're past 90% of the estimate and tqdm hasn't chimed in yet,
-  // auto-extend so the bar doesn't sit pegged at "0 left".
-  if (!tqdmEverUpdated && elapsed > cookEstimateSec * 0.9) {
-    cookEstimateSec = Math.max(cookEstimateSec, elapsed * 1.4);
+  if (modelProgressSeen && lastTotal > 0 && lastDone > 0) {
+    pct = Math.min(99, (lastDone / lastTotal) * 100);
+    const projectedTotal = elapsed * (lastTotal / lastDone);
+    remaining = Math.max(0, projectedTotal - elapsed);
+    cookEstimateSec = projectedTotal;
+  } else {
+    if (elapsed > cookEstimateSec * 0.9) {
+      cookEstimateSec = Math.max(cookEstimateSec, elapsed * 1.4);
+    }
+    pct = Math.min(95, (elapsed / Math.max(1, cookEstimateSec)) * 100);
+    remaining = cookEstimateSec - elapsed;
   }
 
-  const pct = Math.min(97, (elapsed / Math.max(1, cookEstimateSec)) * 100);
   statusBarFill.style.width = pct + '%';
 
-  const remaining = cookEstimateSec - elapsed;
-  if (remaining < 5 && !tqdmEverUpdated) {
+  if (!modelProgressSeen && remaining < 5) {
     // We genuinely don't know - be honest instead of lying "0 left".
     statusTime.textContent = fmtTime(elapsed) + ' elapsed \u00B7 still cooking...';
   } else {
@@ -232,24 +240,27 @@ function finishCookTimer(success) {
   }
 }
 
-// Parse tqdm output like "42%|████ | 210/500 [01:15<01:45,  2.75it/s]".
-// When we see one, blend its ETA into our running estimate.
-function maybeUpdateFromTqdm(logLine) {
-  const m = logLine.match(/(\d+):(\d{2})<(\d+):(\d{2})/);
-  if (!m) return;
-  const etaSec = parseInt(m[3], 10) * 60 + parseInt(m[4], 10);
-  const wall = (Date.now() - cookStart) / 1000;
-  const newEstimate = wall + etaSec;
-  // First tqdm update: trust it completely. Later updates: smooth the change.
-  if (!tqdmEverUpdated) {
-    cookEstimateSec = newEstimate;
-    tqdmEverUpdated = true;
-  } else {
-    cookEstimateSec = cookEstimateSec * 0.3 + newEstimate * 0.7;
+// Audiocraft prints '   42 /   500\r' for each generated token batch
+// (audiocraft/models/musicgen.py line 243). Parse that to drive the bar.
+function maybeUpdateFromPyLog(logLine) {
+  const matches = logLine.match(/(\d{1,6})\s*\/\s*(\d{1,6})/g);
+  if (matches && matches.length) {
+    const last = matches[matches.length - 1];
+    const m = last.match(/(\d+)\s*\/\s*(\d+)/);
+    const done = parseInt(m[1], 10);
+    const total = parseInt(m[2], 10);
+    if (total >= 50 && total <= 100000 && done <= total) {
+      lastDone = done;
+      lastTotal = total;
+      modelProgressSeen = true;
+      statusText.textContent = 'Cooking ' + Math.round((done / total) * 100) + '%';
+    }
   }
+  if (/loading .* on/.test(logLine)) statusText.textContent = 'Warming model...';
+  if (/model loaded/.test(logLine)) statusText.textContent = 'Cooking 0%';
 }
 
-window.api.onPyLog((s) => { maybeUpdateFromTqdm(s); });
+window.api.onPyLog((s) => { maybeUpdateFromPyLog(s); });
 
 generateBtn.addEventListener('click', async () => {
   const prompt = $('#prompt').value.trim();
@@ -280,6 +291,11 @@ generateBtn.addEventListener('click', async () => {
     const res = await window.api.generate(payload);
     state.lastResult = res;
     resultTitle.textContent = res.title;
+    const previewEl = $('#preview-audio');
+    if (previewEl && res.filePath) {
+      previewEl.src = 'file:///' + encodeURI(res.filePath.replace(/\\/g, '/'));
+      previewEl.load();
+    }
     finishCookTimer(true);
     setTimeout(() => {
       resultBox.classList.remove('hidden');
