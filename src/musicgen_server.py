@@ -19,6 +19,7 @@ import json
 import shutil
 import traceback
 import subprocess
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -28,6 +29,28 @@ from flask import Flask, request, jsonify
 MODEL = None
 MODEL_NAME = os.environ.get("COOKUP_MODEL", "facebook/musicgen-melody")
 DEVICE = None
+
+# Cooperative cancellation. /cancel sets the event; long-running jobs
+# poll it (per-token in MusicGen, per-chunk in basic-pitch, per-effect
+# in the FX chain) and raise CancelledByUser when set. Each request that
+# starts a job calls .clear() first so a stale signal doesn't kill it.
+CANCEL_EVENT = threading.Event()
+JOB_LOCK = threading.Lock()
+
+
+class CancelledByUser(Exception):
+    pass
+
+
+def begin_job():
+    """Clear any leftover cancel signal before starting work."""
+    CANCEL_EVENT.clear()
+
+
+def check_cancelled():
+    if CANCEL_EVENT.is_set():
+        raise CancelledByUser("cancelled by user")
+
 
 app = Flask(__name__)
 
@@ -162,6 +185,16 @@ def health():
     })
 
 
+@app.route("/cancel", methods=["POST"])
+def cancel():
+    """Signal any running job to abort at its next checkpoint.
+
+    Cheap, idempotent. The actual abort happens when the running job
+    next calls check_cancelled() or its progress callback fires."""
+    CANCEL_EVENT.set()
+    return jsonify({"ok": True})
+
+
 @app.route("/warmup", methods=["POST"])
 def warmup():
     try:
@@ -175,10 +208,13 @@ def warmup():
 @app.route("/generate", methods=["POST"])
 def generate():
     try:
+        with JOB_LOCK:
+            begin_job()
         data = request.get_json(force=True)
         prompt = (data.get("prompt") or "").strip()
-        if not prompt:
-            return jsonify({"error": "prompt is empty"}), 400
+        # Empty prompt is allowed: with melody references we run pure
+        # melody-conditioned generation; without references we run
+        # unconditional. Audiocraft's MusicGen accepts description=None.
 
         duration = int(data.get("duration", 15))
         duration = max(4, min(duration, 600))
@@ -191,9 +227,23 @@ def generate():
 
         load_model()
 
-        enriched = prompt
-        if bpm:
-            enriched = f"{prompt}, {int(bpm)} bpm"
+        # Hook the per-token callback to (a) print progress for the
+        # renderer's bar, AND (b) raise if cancellation has been requested.
+        def progress_cb(done, total):
+            print(f'{done:6d} / {total:6d}', end='\r', flush=True)
+            if CANCEL_EVENT.is_set():
+                raise CancelledByUser("cancelled by user")
+        MODEL._progress_callback = progress_cb
+
+        # Build the description we hand to MusicGen. None means "no text
+        # conditioning" — audiocraft handles this by emitting a learned
+        # null-text embedding.
+        if prompt:
+            enriched = f"{prompt}, {int(bpm)} bpm" if bpm else prompt
+        elif bpm:
+            enriched = f"instrumental music at {int(bpm)} bpm"
+        else:
+            enriched = None
 
         params = heat_to_params(heat)
         MODEL.set_generation_params(
@@ -203,7 +253,7 @@ def generate():
             top_k=params["top_k"],
         )
 
-        print(f"[cookup] cooking: '{enriched}' "
+        print(f"[cookup] cooking: prompt={enriched!r} "
               f"heat={heat} duration={duration}s refs={len(reference_paths)}",
               flush=True)
 
@@ -235,7 +285,8 @@ def generate():
         print(f"[cookup] generated in {time.time()-t0:.1f}s", flush=True)
 
         import soundfile as sf
-        out_path = str(Path(output_dir) / safe_filename(prompt))
+        # Filename stem from prompt if any; otherwise use a kitchen pun stem.
+        out_path = str(Path(output_dir) / safe_filename(prompt or "surprise"))
 
         audio = wav[0].cpu()
         peak = float(audio.abs().max())
@@ -252,51 +303,240 @@ def generate():
 
         return jsonify({"status": "ok", "file": out_path, "duration": duration})
 
+    except CancelledByUser:
+        # Caller asked us to stop. No partial output file was written
+        # because audiocraft never returned a tensor.
+        return jsonify({"error": "cancelled", "cancelled": True}), 499
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            if MODEL is not None:
+                MODEL._progress_callback = None
+        except Exception:
+            pass
 
 
 # ---------- vocal-to-MIDI ----------
 
+def beatbox_to_drum_midi(vocal_path, output_dir):
+    """Detect onsets in a beatbox recording and classify each as a GM drum hit.
+
+    Returns a (pretty_midi.PrettyMIDI, list[dict]) tuple. The dict list is
+    {start, end, pitch, velocity, drum} per detected hit, suitable for the
+    piano-roll viz with human-readable drum names.
+
+    Classifier is a hand-tuned decision tree over per-onset spectral features
+    (low/mid/high band energy + spectral centroid + ZCR). Not perfect, but
+    way more useful than a generic note-detector for "boom/tss/ka" input.
+    """
+    import numpy as np
+    import librosa
+    import pretty_midi
+
+    audio, sr = librosa.load(vocal_path, sr=22050, mono=True)
+    if audio.size < sr // 4:
+        return pretty_midi.PrettyMIDI(), []
+
+    # Onset detection with envelope-based picking.
+    onset_frames = librosa.onset.onset_detect(
+        y=audio, sr=sr, hop_length=256, backtrack=True,
+        delta=0.05, wait=2,
+    )
+    onset_times = librosa.frames_to_time(onset_frames, sr=sr, hop_length=256)
+    if onset_times.size == 0:
+        return pretty_midi.PrettyMIDI(), []
+
+    # GM drum program (channel 9) note numbers.
+    KICK = 36; SIDE_STICK = 37; SNARE = 38; CLAP = 39
+    CLOSED_HAT = 42; PEDAL_HAT = 44; OPEN_HAT = 46
+    LOW_TOM = 41; MID_TOM = 47; HI_TOM = 50
+    CRASH = 49; RIDE = 51
+
+    DRUM_NAMES = {
+        KICK: "Kick", SIDE_STICK: "SideStick", SNARE: "Snare", CLAP: "Clap",
+        CLOSED_HAT: "ClosedHat", PEDAL_HAT: "PedalHat", OPEN_HAT: "OpenHat",
+        LOW_TOM: "LowTom", MID_TOM: "MidTom", HI_TOM: "HiTom",
+        CRASH: "Crash", RIDE: "Ride",
+    }
+
+    nyq = sr / 2
+    win_n = int(0.05 * sr)  # 50ms classification window
+
+    def band_energy(seg, lo, hi):
+        spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg))))
+        freqs = np.fft.rfftfreq(len(seg), 1 / sr)
+        mask = (freqs >= lo) & (freqs < min(hi, nyq))
+        return float(np.sum(spec[mask] ** 2))
+
+    midi = pretty_midi.PrettyMIDI()
+    drum_inst = pretty_midi.Instrument(program=0, is_drum=True, name="BeatboxDrums")
+    midi.instruments.append(drum_inst)
+
+    notes_meta = []
+    for t_start in onset_times:
+        s_idx = int(t_start * sr)
+        e_idx = min(len(audio), s_idx + win_n)
+        seg = audio[s_idx:e_idx]
+        if seg.size < 64:
+            continue
+        # Normalize the segment so loud kicks and quiet hats see comparable
+        # band ratios; classification is about shape not absolute level.
+        peak = float(np.max(np.abs(seg)))
+        if peak < 1e-4:
+            continue
+        nseg = seg / peak
+        e_low = band_energy(nseg, 20, 200)
+        e_mid = band_energy(nseg, 200, 4000)
+        e_hi  = band_energy(nseg, 4000, 16000)
+        e_total = e_low + e_mid + e_hi + 1e-12
+        f_low = e_low / e_total
+        f_mid = e_mid / e_total
+        f_hi  = e_hi / e_total
+        zcr = float(np.mean(np.abs(np.diff(np.sign(nseg))) > 0))
+        # Sustain: how long the energy stays above 25% of peak.
+        env = np.abs(librosa.stft(seg.astype(np.float32), n_fft=256, hop_length=128))
+        env_t = np.mean(env, axis=0)
+        if env_t.size:
+            env_t /= max(env_t.max(), 1e-6)
+            sustain = float(np.sum(env_t > 0.25)) / env_t.size
+        else:
+            sustain = 0.0
+
+        # Decision tree.
+        if f_low > 0.55 and zcr < 0.18:
+            note = KICK
+        elif f_hi > 0.55 and zcr > 0.40:
+            note = OPEN_HAT if sustain > 0.5 else CLOSED_HAT
+        elif f_hi > 0.45 and sustain > 0.6:
+            note = CRASH
+        elif f_mid > 0.45 and zcr > 0.25 and sustain < 0.5:
+            note = SNARE
+        elif f_mid > 0.45 and sustain > 0.5:
+            note = CLAP
+        elif f_low > 0.4 and zcr > 0.22:
+            note = LOW_TOM
+        else:
+            note = MID_TOM
+
+        velocity = int(min(127, max(40, peak * 127 * 1.1)))
+        # Each drum hit ~150ms; channel 9 ignores duration but pretty_midi
+        # needs end > start.
+        end = float(t_start) + 0.15
+        drum_inst.notes.append(pretty_midi.Note(
+            velocity=velocity, pitch=int(note),
+            start=float(t_start), end=end,
+        ))
+        notes_meta.append({
+            "start": float(t_start), "end": end,
+            "pitch": int(note), "velocity": velocity,
+            "drum": DRUM_NAMES.get(note, "Drum"),
+        })
+
+    return midi, notes_meta
+
+
 @app.route("/vocal-to-midi", methods=["POST"])
 def vocal_to_midi():
     try:
+        with JOB_LOCK:
+            begin_job()
         data = request.get_json(force=True)
         vocal_path = data.get("vocal_path")
         if not vocal_path or not os.path.exists(vocal_path):
             return jsonify({"error": "vocal_path missing or file not found"}), 400
 
+        # mode: 'melodic' | 'drums' | 'bass' | 'lead'
+        mode = (data.get("mode") or "melodic").lower()
         instrument_program = int(data.get("instrument", 0))  # GM program 0 = piano
         is_drums = bool(data.get("is_drums", False))
+        # Bass / lead modes override defaults.
+        if mode == "bass":
+            instrument_program, is_drums = 33, False
+        elif mode == "lead":
+            instrument_program, is_drums = 80, False
+        elif mode == "drums":
+            is_drums = True
         output_dir = data.get("output_dir") or str(Path.home() / "Music" / "Cookup")
         Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-        # 1. basic-pitch -> MIDI
-        try:
-            from basic_pitch.inference import predict
-            from basic_pitch import ICASSP_2022_MODEL_PATH
-        except Exception as e:
-            return jsonify({"error": f"basic-pitch unavailable: {e}"}), 503
+        # Two pipelines: beatbox-to-drums OR pitched basic-pitch.
+        if mode == "drums":
+            print(f"[cookup] beatbox-to-drums on {vocal_path}", flush=True)
+            print("vmprogress 50 / 100", flush=True)
+            check_cancelled()
+            midi_data, drum_notes_meta = beatbox_to_drum_midi(vocal_path, output_dir)
+            print("vmprogress 100 / 100", flush=True)
+        else:
+            try:
+                from basic_pitch.inference import predict
+                from basic_pitch import ICASSP_2022_MODEL_PATH
+            except Exception as e:
+                return jsonify({"error": f"basic-pitch unavailable: {e}"}), 503
 
-        print(f"[cookup] basic-pitch on {vocal_path}", flush=True)
-        model_output, midi_data, note_events = predict(
-            vocal_path,
-            ICASSP_2022_MODEL_PATH,
-            onset_threshold=0.5,
-            frame_threshold=0.3,
-            minimum_note_length=80,
-            minimum_frequency=50,
-            maximum_frequency=2000,
-        )
+            # Chunk audio into 20s windows so we can show per-chunk progress
+            # AND check for cancellation between chunks.
+            import librosa
+            import soundfile as sf
+            import pretty_midi
+            import numpy as np
 
-        # 2. Force the chosen instrument on every track of the predicted MIDI.
-        for inst in midi_data.instruments:
-            inst.program = instrument_program
-            inst.is_drum = is_drums
+            CHUNK_SEC = 20.0
+            audio, sr = librosa.load(vocal_path, sr=22050, mono=True)
+            total_sec = len(audio) / sr
+            n_chunks = max(1, int(np.ceil(total_sec / CHUNK_SEC)))
+            print(f"[cookup] basic-pitch: {total_sec:.1f}s in {n_chunks} chunk(s)", flush=True)
 
+            merged = pretty_midi.PrettyMIDI()
+            merged_inst = pretty_midi.Instrument(program=instrument_program, is_drum=is_drums)
+            merged.instruments.append(merged_inst)
+
+            tmp_chunks_dir = Path(output_dir) / ".cookup-chunks"
+            tmp_chunks_dir.mkdir(parents=True, exist_ok=True)
+
+            for i in range(n_chunks):
+                check_cancelled()
+                start_s = i * CHUNK_SEC
+                end_s = min(total_sec, (i + 1) * CHUNK_SEC)
+                seg = audio[int(start_s * sr): int(end_s * sr)]
+                if seg.size < sr // 4:
+                    continue
+                chunk_path = tmp_chunks_dir / f"chunk_{i:03d}.wav"
+                sf.write(str(chunk_path), seg, sr, subtype="PCM_16")
+                check_cancelled()
+                _, midi_data, _ = predict(
+                    str(chunk_path),
+                    ICASSP_2022_MODEL_PATH,
+                    onset_threshold=0.5,
+                    frame_threshold=0.3,
+                    minimum_note_length=80,
+                    minimum_frequency=50,
+                    maximum_frequency=2000,
+                )
+                # Bass mode: pull notes down an octave so they live in
+                # bass register regardless of where the user sang.
+                pitch_offset = -12 if mode == "bass" else 0
+                for inst in midi_data.instruments:
+                    for note in inst.notes:
+                        merged_inst.notes.append(pretty_midi.Note(
+                            velocity=note.velocity,
+                            pitch=max(0, min(127, note.pitch + pitch_offset)),
+                            start=note.start + start_s,
+                            end=note.end + start_s,
+                        ))
+                try: chunk_path.unlink()
+                except Exception: pass
+                pct = int(round(((i + 1) / n_chunks) * 100))
+                print(f"vmprogress {pct} / 100", flush=True)
+
+            try: tmp_chunks_dir.rmdir()
+            except Exception: pass
+            midi_data = merged
+            drum_notes_meta = None
         stem = Path(vocal_path).stem
-        mid_out = Path(output_dir) / safe_filename(stem + "_midi", ".mid")
+        suffix_tag = ("_" + mode) if mode != "melodic" else "_midi"
+        mid_out = Path(output_dir) / safe_filename(stem + suffix_tag, ".mid")
         midi_data.write(str(mid_out))
 
         # 3. Render via fluidsynth.exe to WAV.
@@ -316,17 +556,22 @@ def vocal_to_midi():
             if not rendered:
                 print(f"[cookup] fluidsynth stderr: {r.stderr}", flush=True)
 
-        # 4. Build a piano-roll-friendly notes list for the renderer.
-        notes = []
-        for inst in midi_data.instruments:
-            for n in inst.notes:
-                notes.append({
-                    "start": float(n.start),
-                    "end": float(n.end),
-                    "pitch": int(n.pitch),
-                    "velocity": int(n.velocity),
-                })
-        notes.sort(key=lambda x: x["start"])
+        # Build a piano-roll-friendly notes list for the renderer. For
+        # drums mode we already have nicely-tagged metadata; otherwise
+        # derive it from the MIDI tracks.
+        if drum_notes_meta is not None:
+            notes = drum_notes_meta
+        else:
+            notes = []
+            for inst in midi_data.instruments:
+                for n in inst.notes:
+                    notes.append({
+                        "start": float(n.start),
+                        "end": float(n.end),
+                        "pitch": int(n.pitch),
+                        "velocity": int(n.velocity),
+                    })
+            notes.sort(key=lambda x: x["start"])
 
         return jsonify({
             "status": "ok",
@@ -334,7 +579,22 @@ def vocal_to_midi():
             "audio_file": str(wav_out) if rendered else None,
             "notes": notes,
             "rendered": rendered,
+            "mode": mode,
         })
+    except CancelledByUser:
+        # Best-effort cleanup of any temp chunk WAVs the cancellation
+        # interrupted before merge.
+        try:
+            tmp = Path(output_dir) / ".cookup-chunks"
+            if tmp.exists():
+                for f in tmp.glob("*.wav"):
+                    try: f.unlink()
+                    except Exception: pass
+                try: tmp.rmdir()
+                except Exception: pass
+        except Exception:
+            pass
+        return jsonify({"error": "cancelled", "cancelled": True}), 499
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -353,65 +613,89 @@ SCALE_INTERVALS = {
 }
 
 
-def autotune_audio(audio, sr, key="C", mode="major", strength="hard"):
-    """Snap pitch to the nearest note in the chosen key.
+def autotune_audio(audio, sr, key="C", mode="major", strength=1.0):
+    """Snap pitch to the nearest note in the chosen key using PSOLA.
 
-    strength="hard": full snap (Cher-style).
-    strength="soft": blend 50% with original f0.
+    The previous implementation chopped audio into per-frame segments and
+    ran librosa.effects.pitch_shift on each one. That layered phase-vocoder
+    artifacts at every segment boundary, producing audible static. PSOLA
+    (Pitch-Synchronous Overlap-Add) handles the entire signal coherently
+    given a continuous target-pitch contour.
+
+    strength: 0.0 = no correction, 1.0 = full snap (Cher mode), 0.5 = subtle.
+    Accepts the legacy strings 'hard' (1.0) and 'soft' (0.5) too.
     """
     import numpy as np
     import librosa
-    pc = NOTE_NAMES_TO_PC.get(key.split()[0], 0)
+    import psola
+
+    if isinstance(strength, str):
+        strength = 1.0 if strength == "hard" else 0.5
+    strength = float(max(0.0, min(1.0, strength)))
+
+    pc = NOTE_NAMES_TO_PC.get(str(key).split()[0], 0)
     intervals = SCALE_INTERVALS.get(mode, SCALE_INTERVALS["major"])
-    scale = sorted({(pc + i) % 12 for i in intervals})
+    scale_pcs = sorted({(pc + i) % 12 for i in intervals})
 
     if audio.ndim == 2:
-        # Pull to mono for pitch tracking; apply same shift to both channels.
-        mono = audio.mean(axis=1)
+        # Treat as mono for analysis, mix back to stereo at the end.
+        mono = audio.mean(axis=1).astype(np.float32)
     else:
-        mono = audio
-    f0, voiced_flag, _ = librosa.pyin(
-        mono, fmin=80, fmax=1000, sr=sr, frame_length=2048, hop_length=512
+        mono = audio.astype(np.float32)
+
+    fmin, fmax = 70.0, 1000.0
+    f0, voiced, _ = librosa.pyin(
+        mono, fmin=fmin, fmax=fmax, sr=sr,
+        frame_length=2048, hop_length=256, fill_na=np.nan,
     )
-    n_frames = len(f0)
-    out = np.zeros_like(audio if audio.ndim == 2 else mono)
-    hop = 512
-    for i in range(n_frames):
-        if not voiced_flag[i] or np.isnan(f0[i]):
-            target_shift = 0.0
-        else:
-            midi_note = librosa.hz_to_midi(f0[i])
-            note_pc = int(round(midi_note)) % 12
-            distances = [(s - note_pc) % 12 for s in scale]
-            distances_signed = [d if d <= 6 else d - 12 for d in distances]
-            best = min(distances_signed, key=lambda d: abs(d))
-            target_midi = round(midi_note) + best
-            cents_shift = (target_midi - midi_note) * 100
-            if strength == "soft":
-                cents_shift *= 0.5
-            target_shift = cents_shift / 100.0  # semitones
-        seg_start = i * hop
-        seg_end = min(seg_start + hop, len(mono))
-        if seg_end <= seg_start:
-            continue
-        seg = (audio[seg_start:seg_end] if audio.ndim == 2
-               else audio[seg_start:seg_end])
-        if abs(target_shift) > 1e-3 and seg.shape[0] > 64:
-            try:
-                if audio.ndim == 2:
-                    shifted_l = librosa.effects.pitch_shift(seg[:, 0], sr=sr, n_steps=target_shift)
-                    shifted_r = librosa.effects.pitch_shift(seg[:, 1], sr=sr, n_steps=target_shift)
-                    shifted = np.stack([shifted_l, shifted_r], axis=1)
-                else:
-                    shifted = librosa.effects.pitch_shift(seg, sr=sr, n_steps=target_shift)
-                # Length match (pitch_shift may differ by a few samples).
-                m = min(seg.shape[0], shifted.shape[0])
-                out[seg_start:seg_start + m] = shifted[:m]
-            except Exception:
-                out[seg_start:seg_end] = seg
-        else:
-            out[seg_start:seg_end] = seg
-    return out
+
+    # Build a target-pitch contour by snapping each voiced frame to the
+    # nearest in-scale note, blended with the original by `strength`.
+    target = np.copy(f0)
+    voiced_idx = np.where(voiced & ~np.isnan(f0))[0]
+    if voiced_idx.size:
+        midi = librosa.hz_to_midi(f0[voiced_idx])
+        # For each voiced frame, find the closest in-scale MIDI value.
+        rounded = np.round(midi)
+        snapped = np.copy(rounded)
+        for i, n in enumerate(rounded):
+            note_pc = int(n) % 12
+            best = min(scale_pcs, key=lambda s: min(abs(s - note_pc), 12 - abs(s - note_pc)))
+            # Pick the nearest octave's version of `best` to `n`.
+            cand = int(n) - note_pc + best
+            cands = [cand - 12, cand, cand + 12]
+            snapped[i] = min(cands, key=lambda c: abs(c - n))
+        snapped_hz = librosa.midi_to_hz(snapped)
+        # Blend strength: 0 means keep original f0, 1 means full snap.
+        target[voiced_idx] = (
+            strength * snapped_hz + (1 - strength) * f0[voiced_idx]
+        )
+
+    # Smooth the contour over ~30ms so frame-to-frame jitter doesn't leak
+    # into the vocoder as warble.
+    from scipy.ndimage import median_filter
+    smoothed = np.copy(target)
+    voiced_mask = ~np.isnan(target)
+    if voiced_mask.any():
+        smoothed[voiced_mask] = median_filter(target[voiced_mask], size=5)
+    smoothed = np.where(np.isnan(smoothed), 0.0, smoothed).astype(np.float32)
+
+    if audio.ndim == 2:
+        try:
+            l = psola.vocode(audio[:, 0].astype(np.float32), sr,
+                             target_pitch=smoothed, fmin=fmin, fmax=fmax)
+            r = psola.vocode(audio[:, 1].astype(np.float32), sr,
+                             target_pitch=smoothed, fmin=fmin, fmax=fmax)
+            m = min(l.shape[0], r.shape[0])
+            return np.stack([l[:m], r[:m]], axis=1)
+        except Exception:
+            traceback.print_exc()
+            return audio
+    try:
+        return psola.vocode(mono, sr, target_pitch=smoothed, fmin=fmin, fmax=fmax)
+    except Exception:
+        traceback.print_exc()
+        return audio
 
 
 def deesser(audio, sr, threshold_db=-25.0):
@@ -518,6 +802,8 @@ def apply_pedalboard_chain(audio, sr, effects):
 @app.route("/effects", methods=["POST"])
 def effects():
     try:
+        with JOB_LOCK:
+            begin_job()
         import numpy as np
         import soundfile as sf
 
@@ -536,11 +822,15 @@ def effects():
 
         # Apply each effect in chain order. DIY effects intercept by name;
         # everything else falls through to pedalboard.
+        active = [s for s in chain if s.get("enabled", True)]
+        n_active = max(1, len(active))
+        done = 0
         for step in chain:
             t = step.get("type")
             p = step.get("params") or {}
             if not step.get("enabled", True):
                 continue
+            check_cancelled()
             try:
                 if t == "AutoTune":
                     audio = autotune_audio(audio, sr,
@@ -558,9 +848,14 @@ def effects():
                     audio = vocal_exciter(audio, sr, drive=p.get("drive", 0.3))
                 else:
                     audio = apply_pedalboard_chain(audio, sr, [{"type": t, "params": p}])
+            except CancelledByUser:
+                raise
             except Exception as e:
                 traceback.print_exc()
                 print(f"[cookup] effect {t} failed: {e}", flush=True)
+            done += 1
+            pct = int(round((done / n_active) * 100))
+            print(f"fxprogress {pct} / 100", flush=True)
 
         # Peak normalize so we don't clip; leave a little headroom.
         peak = float(np.max(np.abs(audio))) if audio.size else 0.0
@@ -570,6 +865,8 @@ def effects():
         out_path = str(Path(output_dir) / safe_filename(Path(in_path).stem + "_fx"))
         sf.write(out_path, audio, sr, subtype="PCM_16")
         return jsonify({"status": "ok", "file": out_path})
+    except CancelledByUser:
+        return jsonify({"error": "cancelled", "cancelled": True}), 499
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
@@ -661,4 +958,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("COOKUP_PORT", "7781"))
     host = os.environ.get("COOKUP_HOST", "127.0.0.1")
     print(f"[cookup] server listening on http://{host}:{port}", flush=True)
-    app.run(host=host, port=port, threaded=False, use_reloader=False)
+    # threaded=True so /cancel can fire while a job is in flight.
+    app.run(host=host, port=port, threaded=True, use_reloader=False)

@@ -98,6 +98,7 @@
           <div class="spinner"></div>
           <div id="status-text">Working...</div>
           <div id="status-time" class="status-time"></div>
+          <button id="cancel-cook" class="ghost cancel-btn">Cancel</button>
         </div>
         <div class="status-bar">
           <div class="status-bar-fill" id="status-bar-fill"></div>
@@ -181,6 +182,11 @@
         <div class="status-row">
           <div class="spinner"></div>
           <div id="spice-status-text">Processing...</div>
+          <div id="spice-status-time" class="status-time"></div>
+          <button id="spice-cancel" class="ghost cancel-btn">Cancel</button>
+        </div>
+        <div class="status-bar">
+          <div class="status-bar-fill" id="spice-status-bar-fill"></div>
         </div>
       </section>
 
@@ -212,6 +218,16 @@
       </section>
 
       <section class="card">
+        <label class="lbl">Mode</label>
+        <div class="mode-grid" id="vm-mode-grid">
+          <button class="vm-mode active" data-mode="melodic">Melodic <span class="muted">(sing notes)</span></button>
+          <button class="vm-mode" data-mode="bass">Bass <span class="muted">(sing low)</span></button>
+          <button class="vm-mode" data-mode="lead">Lead Synth</button>
+          <button class="vm-mode" data-mode="drums">Drums <span class="muted">(beatbox)</span></button>
+        </div>
+      </section>
+
+      <section class="card" id="vm-instrument-card">
         <label class="lbl">Render with instrument</label>
         <div class="instrument-grid" id="instrument-grid">
           <button class="inst active" data-program="0" data-drums="false">Piano</button>
@@ -221,8 +237,20 @@
           <button class="inst" data-program="33" data-drums="false">Bass</button>
           <button class="inst" data-program="48" data-drums="false">Strings</button>
           <button class="inst" data-program="56" data-drums="false">Brass</button>
-          <button class="inst" data-program="0"  data-drums="true">Drums</button>
         </div>
+      </section>
+
+      <section class="card hidden" id="vm-beatbox-guide">
+        <label class="lbl">How to beatbox</label>
+        <div class="beatbox-grid">
+          <div><b>"Boom" / "B"</b><span class="muted">&nbsp;&rarr; Kick</span></div>
+          <div><b>"Ka" / "Pf"</b><span class="muted">&nbsp;&rarr; Snare</span></div>
+          <div><b>"Tss" / "Ts"</b><span class="muted">&nbsp;&rarr; Closed hat</span></div>
+          <div><b>"Tsss..."</b><span class="muted">&nbsp;&rarr; Open hat / Crash</span></div>
+          <div><b>"Clap"</b><span class="muted">&nbsp;&rarr; Clap</span></div>
+          <div><b>"Doom"</b><span class="muted">&nbsp;&rarr; Tom</span></div>
+        </div>
+        <p class="muted small">Detected hits get classified by spectral shape (low-band energy, ZCR, sustain). It guesses pretty well for clean recordings; quieter ambient noise sometimes triggers false hits.</p>
       </section>
 
       <div class="cook-wrap">
@@ -233,6 +261,11 @@
         <div class="status-row">
           <div class="spinner"></div>
           <div id="vm-status-text">Listening for notes...</div>
+          <div id="vm-status-time" class="status-time"></div>
+          <button id="vm-cancel" class="ghost cancel-btn">Cancel</button>
+        </div>
+        <div class="status-bar">
+          <div class="status-bar-fill" id="vm-status-bar-fill"></div>
         </div>
       </section>
 
@@ -279,6 +312,12 @@
       <div class="row">
         <input id="s-out" type="text" readonly />
         <button id="s-pick-out" class="ghost">Pick</button>
+      </div>
+
+      <label class="lbl">Microphone <span class="muted">(used by all Record buttons)</span></label>
+      <div class="row">
+        <select id="s-mic"></select>
+        <button id="s-mic-refresh" class="ghost">&#8635;</button>
       </div>
 
       <p class="muted small">

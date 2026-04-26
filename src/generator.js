@@ -44,9 +44,13 @@ async function generateBeat({
   };
 }
 
-async function vocalToMidi({ vocalPath, instrument = 0, isDrums = false, outputDir, serverBase = DEFAULT_BASE }) {
+async function vocalToMidi({
+  vocalPath, mode = 'melodic', instrument = 0, isDrums = false,
+  outputDir, serverBase = DEFAULT_BASE,
+}) {
   const body = await postJson(`${serverBase}/vocal-to-midi`, {
     vocal_path: vocalPath,
+    mode,
     instrument,
     is_drums: isDrums,
     output_dir: outputDir,
@@ -68,6 +72,15 @@ async function analyzeVocal({ inputPath, serverBase = DEFAULT_BASE }) {
     input_path: inputPath,
   });
   return body;
+}
+
+async function cancelJob(serverBase = DEFAULT_BASE) {
+  try {
+    await fetch(`${serverBase}/cancel`, { method: 'POST', timeout: 2000 });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e) };
+  }
 }
 
 async function checkHealth(serverBase = DEFAULT_BASE) {
@@ -93,6 +106,7 @@ module.exports = {
   vocalToMidi,
   applyEffects,
   analyzeVocal,
+  cancelJob,
   checkHealth,
   warmup,
   DEFAULT_BASE,

@@ -21,7 +21,8 @@ const store = new Store({
   defaults: {
     outputDir: path.join(os.homedir(), 'Music', 'Cookup'),
     pythonPath: '',
-    serverPort: 7781
+    serverPort: 7781,
+    inputDeviceId: ''
   }
 });
 
@@ -30,6 +31,7 @@ const {
   vocalToMidi,
   applyEffects,
   analyzeVocal,
+  cancelJob,
   checkHealth,
   warmup,
 } = require('./src/generator');
@@ -222,7 +224,8 @@ ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('settings:get', () => ({
   outputDir: store.get('outputDir'),
   pythonPath: store.get('pythonPath'),
-  serverPort: store.get('serverPort')
+  serverPort: store.get('serverPort'),
+  inputDeviceId: store.get('inputDeviceId')
 }));
 
 ipcMain.handle('settings:set', (_evt, patch) => {
@@ -260,6 +263,8 @@ ipcMain.handle('beat:generate', async (_evt, payload) => {
   return generateBeat({ ...payload, outputDir: store.get('outputDir'), onProgress });
 });
 
+ipcMain.handle('cook:cancel', async () => cancelJob());
+
 ipcMain.handle('beat:reveal', async (_evt, filePath) => {
   if (filePath && fs.existsSync(filePath)) shell.showItemInFolder(filePath);
 });
@@ -286,9 +291,10 @@ ipcMain.handle('voice:save', async (_evt, { bytes, suffix = '.wav' }) => {
   return file;
 });
 
-ipcMain.handle('voice:vocalToMidi', async (_evt, { vocalPath, instrument, isDrums }) => {
+ipcMain.handle('voice:vocalToMidi', async (_evt, { vocalPath, mode, instrument, isDrums }) => {
   return vocalToMidi({
     vocalPath,
+    mode,
     instrument,
     isDrums,
     outputDir: store.get('outputDir'),

@@ -624,3 +624,62 @@ button.recording {
   background: linear-gradient(180deg, var(--kitchen-orange-soft) 0%, var(--kitchen-orange) 100%);
 }
 .go:hover { filter: brightness(1.07); }
+
+/* In-flight Cancel button (Stove / Spice / Voice->MIDI status rows). */
+.cancel-btn {
+  -webkit-app-region: no-drag;
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 75, 110, 0.35);
+  background: rgba(255, 75, 110, 0.08);
+  color: #ffb1bc;
+  cursor: pointer;
+  margin-left: auto;
+}
+.cancel-btn:hover { background: rgba(255, 75, 110, 0.18); }
+.cancel-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #888;
+}
+
+#s-mic { flex: 1; }
+
+/* Voice -> MIDI mode picker (above the instrument grid). */
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+.vm-mode {
+  -webkit-app-region: no-drag;
+  background: rgba(255,255,255,0.04);
+  color: #e8e8ea;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px; font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s, border-color .15s;
+}
+.vm-mode:hover { background: rgba(217,119,6,0.10); }
+.vm-mode.active {
+  background: rgba(217,119,6,0.22);
+  border-color: var(--kitchen-orange);
+  color: var(--kitchen-cream);
+}
+.vm-mode .muted { font-weight: 400; font-size: 11px; }
+
+.beatbox-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 12px;
+  margin: 6px 0;
+  font-size: 12px;
+  color: #cfcfd6;
+}

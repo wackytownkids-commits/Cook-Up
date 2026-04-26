@@ -97,6 +97,12 @@ Write-Host "Installing basic-pitch with ONNX backend (vocal-to-MIDI)..."
 Write-Host "Installing pretty_midi + mido (MIDI inspection / piano roll)..."
 & $Py -m pip install pretty_midi mido
 
+Write-Host "Installing psola (PSOLA pitch-correction for AutoTune)..."
+# PSOLA via Praat. praat-parselmouth ships a Windows wheel so this is
+# pure-pip, no extra system deps. Replaces librosa.effects.pitch_shift
+# in autotune to eliminate phase-vocoder static.
+& $Py -m pip install psola
+
 # ---- Bundle a soundfont so the vocal-to-MIDI flow can render to audio. ----
 # FluidR3Mono_GM.sf3 (~22MB, MIT-licensed by S. Christian Collins, mono SF3
 # variant of FluidR3) covers all 128 General MIDI programs plus drums.
@@ -130,7 +136,7 @@ Get-ChildItem -Path $Dest -Recurse -Directory -Filter "__pycache__" | Remove-Ite
 Get-ChildItem -Path $Dest -Recurse -Directory -Filter "tests" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Sanity check..."
-& $Py -c "import flask, torch, torchaudio, audiocraft, soundfile, pedalboard, scipy, librosa, pretty_midi; print('[bundle] core imports OK')"
+& $Py -c "import flask, torch, torchaudio, audiocraft, soundfile, pedalboard, scipy, librosa, pretty_midi, psola; print('[bundle] core imports OK')"
 try {
     & $Py -c "import basic_pitch; print('[bundle] basic-pitch OK')"
     if ($LASTEXITCODE -ne 0) { Write-Host "WARN: basic-pitch import returned non-zero" }

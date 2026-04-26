@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('api', {
   applyFx: (payload) => ipcRenderer.invoke('fx:apply', payload),
   analyzeVocal: (payload) => ipcRenderer.invoke('fx:analyzeVocal', payload),
   pickAudio: () => ipcRenderer.invoke('files:pickAudio'),
+  cancelJob: () => ipcRenderer.invoke('cook:cancel'),
 
   // Auto-updater
   getVersion: () => ipcRenderer.invoke('app:version'),

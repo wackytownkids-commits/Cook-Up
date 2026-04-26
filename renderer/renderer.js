@@ -13,9 +13,14 @@ const state = {
   knobAngle: 0,
   dragging: false,
   spice: { sourcePath: null, lastResult: null, originalForAB: null },
-  vm: { sourcePath: null, lastResult: null, instrumentProgram: 0, isDrums: false },
+  vm: { sourcePath: null, lastResult: null, instrumentProgram: 0, isDrums: false, mode: 'melodic' },
   fxChain: [],
+  inputDeviceId: '',
 };
+
+// Pull the persisted mic deviceId on launch so the very first recording
+// uses the user's choice without them having to open Settings first.
+window.api.getSettings().then((s) => { state.inputDeviceId = s.inputDeviceId || ''; });
 
 // ==================== Tabs ====================
 
@@ -45,18 +50,54 @@ async function openSettings() {
   $('#s-py').value = s.pythonPath || '';
   $('#s-port').value = s.serverPort || 7781;
   $('#s-out').value = s.outputDir || '';
+  state.inputDeviceId = s.inputDeviceId || '';
+  await refreshMicList();
   try { $('#s-version').textContent = 'v' + (await window.api.getVersion()); } catch (_) {}
   settingsModal.classList.remove('hidden');
 }
 function closeSettings() { settingsModal.classList.add('hidden'); }
 async function saveSettings() {
+  state.inputDeviceId = $('#s-mic').value || '';
   await window.api.setSettings({
     pythonPath: $('#s-py').value.trim(),
     serverPort: parseInt($('#s-port').value, 10) || 7781,
     outputDir: $('#s-out').value.trim(),
+    inputDeviceId: state.inputDeviceId,
   });
   closeSettings();
 }
+
+async function refreshMicList() {
+  const sel = $('#s-mic');
+  sel.innerHTML = '';
+  try {
+    // enumerateDevices() only returns labels for inputs the user has
+    // already granted permission to. Trigger a one-shot getUserMedia()
+    // so labels show up populated; we discard the stream immediately.
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tmp.getTracks().forEach((t) => t.stop());
+    } catch (_) { /* user may deny; we'll show "device N" labels */ }
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devices.filter((d) => d.kind === 'audioinput');
+    const def = document.createElement('option');
+    def.value = ''; def.textContent = 'System default';
+    sel.appendChild(def);
+    inputs.forEach((d, i) => {
+      const o = document.createElement('option');
+      o.value = d.deviceId;
+      o.textContent = d.label || `Microphone ${i + 1}`;
+      if (d.deviceId === state.inputDeviceId) o.selected = true;
+      sel.appendChild(o);
+    });
+    if (state.inputDeviceId === '') sel.value = '';
+  } catch (e) {
+    const o = document.createElement('option');
+    o.value = ''; o.textContent = '(could not enumerate)';
+    sel.appendChild(o);
+  }
+}
+$('#s-mic-refresh') && $('#s-mic-refresh').addEventListener('click', refreshMicList);
 
 // ==================== Stove: ingredients ====================
 
@@ -98,7 +139,10 @@ class WavRecorder {
     this.stream = null;
   }
   async start() {
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const constraints = state.inputDeviceId
+      ? { audio: { deviceId: { exact: state.inputDeviceId } } }
+      : { audio: true };
+    this.stream = await navigator.mediaDevices.getUserMedia(constraints);
     this.ctx = new AudioContext();
     this.sampleRate = this.ctx.sampleRate;
     this.source = this.ctx.createMediaStreamSource(this.stream);
@@ -366,11 +410,116 @@ function maybeUpdateFromPyLog(logLine) {
 }
 window.api.onPyLog((s) => { maybeUpdateFromPyLog(s); });
 
+// ----- Shared per-job timer (Spice / Voice->MIDI) -----
+// Each is a tiny object so two jobs can't share state by accident.
+function makeJobTimer({ statusEl, statusTextEl, timeEl, barEl }) {
+  return {
+    start: 0,
+    last: { done: 0, total: 0, seen: false },
+    interval: null,
+    estimateSec: 0,
+    begin(estimate) {
+      this.start = Date.now();
+      this.last = { done: 0, total: 0, seen: false };
+      this.estimateSec = estimate || 60;
+      if (this.interval) clearInterval(this.interval);
+      this.interval = setInterval(() => this.tick(), 250);
+      this.tick();
+    },
+    tick() {
+      const elapsed = (Date.now() - this.start) / 1000;
+      let pct, remaining;
+      if (this.last.seen && this.last.total > 0 && this.last.done > 0) {
+        pct = Math.min(99, (this.last.done / this.last.total) * 100);
+        const projected = elapsed * (this.last.total / this.last.done);
+        remaining = Math.max(0, projected - elapsed);
+        this.estimateSec = projected;
+      } else {
+        if (elapsed > this.estimateSec * 0.9) {
+          this.estimateSec = Math.max(this.estimateSec, elapsed * 1.4);
+        }
+        pct = Math.min(95, (elapsed / Math.max(1, this.estimateSec)) * 100);
+        remaining = this.estimateSec - elapsed;
+      }
+      if (barEl) barEl.style.width = pct + '%';
+      if (timeEl) {
+        if (!this.last.seen && remaining < 5) {
+          timeEl.textContent = fmtTime(elapsed) + ' elapsed';
+        } else if (remaining < 5 && pct > 95) {
+          timeEl.textContent = 'Almost done...';
+        } else {
+          timeEl.textContent =
+            fmtTime(elapsed) + ' elapsed · ~' + fmtTime(Math.max(0, remaining)) + ' left';
+        }
+      }
+    },
+    finish(success) {
+      if (this.interval) { clearInterval(this.interval); this.interval = null; }
+      if (barEl) barEl.style.width = success ? '100%' : '0%';
+      if (timeEl && success) {
+        const total = (Date.now() - this.start) / 1000;
+        timeEl.textContent = 'Done in ' + fmtTime(total);
+      }
+    },
+    feedProgress(done, total, label) {
+      this.last = { done, total, seen: true };
+      if (statusTextEl && label) statusTextEl.textContent = label;
+    },
+  };
+}
+
+const spiceTimer = makeJobTimer({
+  statusEl: $('#spice-status'),
+  statusTextEl: $('#spice-status-text'),
+  timeEl: $('#spice-status-time'),
+  barEl: $('#spice-status-bar-fill'),
+});
+const vmTimer = makeJobTimer({
+  statusEl: $('#vm-status'),
+  statusTextEl: $('#vm-status-text'),
+  timeEl: $('#vm-status-time'),
+  barEl: $('#vm-status-bar-fill'),
+});
+
+// Distinct progress markers so each tab only updates its own bar.
+window.api.onPyLog((s) => {
+  const fxm = s.match(/fxprogress\s+(\d+)\s*\/\s*(\d+)/);
+  if (fxm) spiceTimer.feedProgress(parseInt(fxm[1], 10), parseInt(fxm[2], 10),
+    'Seasoning ' + fxm[1] + '%');
+  const vmm = s.match(/vmprogress\s+(\d+)\s*\/\s*(\d+)/);
+  if (vmm) vmTimer.feedProgress(parseInt(vmm[1], 10), parseInt(vmm[2], 10),
+    'Transcribing ' + vmm[1] + '%');
+});
+
 // ==================== Stove: Cook button ====================
+
+let cookCancelled = false;
+const cancelCookBtn = $('#cancel-cook');
+
+cancelCookBtn.addEventListener('click', async () => {
+  if (cancelCookBtn.disabled) return;
+  cancelCookBtn.disabled = true;
+  cancelCookBtn.textContent = 'Cancelling...';
+  cookCancelled = true;
+  try { await window.api.cancelJob(); } catch (_) {}
+});
 
 generateBtn.addEventListener('click', async () => {
   const prompt = $('#prompt').value.trim();
-  if (!prompt) { flashStoveStatus('Write a recipe first.'); return; }
+  // Empty prompt is allowed: the server can run unconditional, or pure
+  // melody-conditioned if there's an ingredient. Only block if BOTH are empty
+  // and the user clicks twice without filling anything in.
+  if (!prompt && !state.songs.length) {
+    if (!generateBtn.dataset.confirmedSurprise) {
+      $('#prompt').setAttribute('placeholder',
+        'leave blank for a surprise, or write a vibe...');
+      $('#prompt').focus();
+      flashStoveStatus('Empty recipe + no ingredients = surprise. Click Cook again to confirm.');
+      generateBtn.dataset.confirmedSurprise = '1';
+      return;
+    }
+  }
+  generateBtn.dataset.confirmedSurprise = '';
   const durationSec = parseInt($('#duration').value, 10);
 
   resultBox.classList.add('hidden');
@@ -382,6 +531,10 @@ generateBtn.addEventListener('click', async () => {
   burner.classList.add('hot');
   generateBtn.disabled = true;
   generateBtn.textContent = 'Cooking...';
+  cookCancelled = false;
+  cancelCookBtn.disabled = false;
+  cancelCookBtn.textContent = 'Cancel';
+  cancelCookBtn.classList.remove('hidden');
 
   startCookTimer(durationSec);
 
@@ -406,13 +559,21 @@ generateBtn.addEventListener('click', async () => {
       statusBox.classList.add('hidden');
     }, 600);
   } catch (err) {
-    statusText.textContent = 'Error: ' + (err.message || String(err));
+    const msg = err && err.message || String(err);
+    statusText.textContent = cookCancelled || /cancel/i.test(msg)
+      ? 'Cancelled.'
+      : 'Error: ' + msg;
     finishCookTimer(false);
+    if (cookCancelled || /cancel/i.test(msg)) {
+      setTimeout(() => statusBox.classList.add('hidden'), 1500);
+    }
   } finally {
     flames.classList.remove('on');
     burner.classList.remove('hot');
     generateBtn.disabled = false;
     generateBtn.textContent = 'Cook';
+    cancelCookBtn.disabled = true;
+    cookCancelled = false;
   }
 });
 
@@ -508,10 +669,10 @@ const FX_DEFS = {
   Gain: { params: { gain_db: 0 }, schema: [
     { k: 'gain_db', label: 'Gain dB', min: -24, max: 24, step: 0.5 },
   ]},
-  AutoTune: { params: { key: 'C', mode: 'major', strength: 'hard' }, schema: [
+  AutoTune: { params: { key: 'C', mode: 'major', strength: 1.0 }, schema: [
     { k: 'key', label: 'Key', options: ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'] },
     { k: 'mode', label: 'Mode', options: ['major','minor'] },
-    { k: 'strength', label: 'Strength', options: ['hard','soft'] },
+    { k: 'strength', label: 'Strength', min: 0, max: 1, step: 0.05 },
   ]},
   DeEsser: { params: { threshold_db: -25 }, schema: [
     { k: 'threshold_db', label: 'Threshold dB', min: -40, max: 0, step: 0.5 },
@@ -530,7 +691,7 @@ const PRESETS = {
   'Modern Pop Vocal': [
     { type: 'Compressor', params: { threshold_db: -18, ratio: 3, attack_ms: 5, release_ms: 80 }},
     { type: 'DeEsser', params: { threshold_db: -22 }},
-    { type: 'AutoTune', params: { key: 'C', mode: 'major', strength: 'soft' }},
+    { type: 'AutoTune', params: { key: 'C', mode: 'major', strength: 0.5 }},
     { type: 'Reverb', params: { room_size: 0.4, wet_level: 0.18, dry_level: 0.85, damping: 0.5, width: 0.9 }},
     { type: 'Limiter', params: { threshold_db: -2, release_ms: 50 }},
   ],
@@ -551,7 +712,7 @@ const PRESETS = {
     { type: 'Chorus', params: { rate_hz: 0.6, depth: 0.2, centre_delay_ms: 8, feedback: 0.05, mix: 0.3 }},
   ],
   'Robotic Auto-Tune': [
-    { type: 'AutoTune', params: { key: 'A', mode: 'minor', strength: 'hard' }},
+    { type: 'AutoTune', params: { key: 'A', mode: 'minor', strength: 1.0 }},
     { type: 'Chorus', params: { rate_hz: 1.5, depth: 0.4, centre_delay_ms: 6, feedback: 0.2, mix: 0.5 }},
     { type: 'Delay', params: { delay_seconds: 0.18, feedback: 0.25, mix: 0.2 }},
   ],
@@ -759,6 +920,15 @@ $('#magic-vocal').addEventListener('click', async () => {
   }
 });
 
+let spiceCancelled = false;
+$('#spice-cancel').addEventListener('click', async () => {
+  const btn = $('#spice-cancel');
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = 'Cancelling...';
+  spiceCancelled = true;
+  try { await window.api.cancelJob(); } catch (_) {}
+});
+
 $('#apply-fx').addEventListener('click', async () => {
   if (!state.spice.sourcePath) {
     $('#spice-status-text').textContent = 'Pick a source first.';
@@ -768,6 +938,12 @@ $('#apply-fx').addEventListener('click', async () => {
   $('#spice-result').classList.add('hidden');
   $('#spice-status').classList.remove('hidden');
   $('#spice-status-text').textContent = 'Processing chain...';
+  spiceCancelled = false;
+  const cancelBtn = $('#spice-cancel');
+  cancelBtn.disabled = false; cancelBtn.textContent = 'Cancel';
+  // Heuristic estimate: ~1 sec per active effect (pedalboard runs near-realtime).
+  const active = state.fxChain.filter((s) => s.enabled !== false).length || 1;
+  spiceTimer.begin(Math.max(2, active * 1.5));
   try {
     const r = await window.api.applyFx({
       inputPath: state.spice.sourcePath,
@@ -778,10 +954,20 @@ $('#apply-fx').addEventListener('click', async () => {
     const aud = $('#spice-preview-audio');
     aud.src = 'file:///' + encodeURI(r.file.replace(/\\/g, '/'));
     aud.load();
+    spiceTimer.finish(true);
     $('#spice-status').classList.add('hidden');
     $('#spice-result').classList.remove('hidden');
   } catch (e) {
-    $('#spice-status-text').textContent = 'Error: ' + (e.message || e);
+    const msg = e && e.message || String(e);
+    $('#spice-status-text').textContent = (spiceCancelled || /cancel/i.test(msg))
+      ? 'Cancelled.' : 'Error: ' + msg;
+    spiceTimer.finish(false);
+    if (spiceCancelled || /cancel/i.test(msg)) {
+      setTimeout(() => $('#spice-status').classList.add('hidden'), 1500);
+    }
+  } finally {
+    cancelBtn.disabled = true;
+    spiceCancelled = false;
   }
 });
 
@@ -824,6 +1010,21 @@ instrumentGrid.addEventListener('click', (e) => {
   state.vm.isDrums = b.dataset.drums === 'true';
 });
 
+const vmModeGrid = $('#vm-mode-grid');
+vmModeGrid.addEventListener('click', (e) => {
+  const b = e.target.closest('.vm-mode');
+  if (!b) return;
+  vmModeGrid.querySelectorAll('.vm-mode').forEach((x) => x.classList.remove('active'));
+  b.classList.add('active');
+  state.vm.mode = b.dataset.mode;
+  // Drums uses its own classification pipeline; bass/lead override the
+  // GM program at the server. Show the right helper UI for each mode.
+  const isDrums = state.vm.mode === 'drums';
+  $('#vm-instrument-card').classList.toggle('hidden',
+    isDrums || state.vm.mode === 'bass' || state.vm.mode === 'lead');
+  $('#vm-beatbox-guide').classList.toggle('hidden', !isDrums);
+});
+
 function setVmSource(filePath, displayName) {
   state.vm.sourcePath = filePath;
   $('#vm-source-name').textContent = displayName || filePath.split(/[\\/]/).pop();
@@ -849,6 +1050,15 @@ vmRecBtn.addEventListener('click', async () => {
   }
 });
 
+let vmCancelled = false;
+$('#vm-cancel').addEventListener('click', async () => {
+  const btn = $('#vm-cancel');
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = 'Cancelling...';
+  vmCancelled = true;
+  try { await window.api.cancelJob(); } catch (_) {}
+});
+
 $('#vm-go').addEventListener('click', async () => {
   if (!state.vm.sourcePath) {
     $('#vm-status-text').textContent = 'Pick or record a vocal first.';
@@ -858,14 +1068,28 @@ $('#vm-go').addEventListener('click', async () => {
   $('#vm-result').classList.add('hidden');
   $('#vm-status').classList.remove('hidden');
   $('#vm-status-text').textContent = 'Transcribing pitch... (first run is slow)';
+  vmCancelled = false;
+  const cancelBtn = $('#vm-cancel');
+  cancelBtn.disabled = false; cancelBtn.textContent = 'Cancel';
+  // Rough estimate: basic-pitch is ~0.4x realtime per chunk on CPU. Without
+  // knowing source duration we just guess 30s; the per-chunk progress will
+  // recalibrate within the first chunk.
+  vmTimer.begin(30);
   try {
     const r = await window.api.vocalToMidi({
       vocalPath: state.vm.sourcePath,
+      mode: state.vm.mode,
       instrument: state.vm.instrumentProgram,
       isDrums: state.vm.isDrums,
     });
     if (!r || r.error) {
-      $('#vm-status-text').textContent = 'Failed: ' + (r && r.error || 'unknown');
+      const msg = r && r.error || 'unknown';
+      $('#vm-status-text').textContent = (vmCancelled || /cancel/i.test(msg))
+        ? 'Cancelled.' : 'Failed: ' + msg;
+      vmTimer.finish(false);
+      if (vmCancelled || /cancel/i.test(msg)) {
+        setTimeout(() => $('#vm-status').classList.add('hidden'), 1500);
+      }
       return;
     }
     state.vm.lastResult = r.audio_file || null;
@@ -878,6 +1102,7 @@ $('#vm-go').addEventListener('click', async () => {
     } else {
       $('#vm-preview-audio').classList.add('hidden');
     }
+    vmTimer.finish(true);
     $('#vm-status').classList.add('hidden');
     $('#vm-result').classList.remove('hidden');
     if (!r.rendered) {
@@ -885,7 +1110,13 @@ $('#vm-go').addEventListener('click', async () => {
       $('#vm-status').classList.remove('hidden');
     }
   } catch (e) {
-    $('#vm-status-text').textContent = 'Error: ' + (e.message || e);
+    const msg = e && e.message || String(e);
+    $('#vm-status-text').textContent = (vmCancelled || /cancel/i.test(msg))
+      ? 'Cancelled.' : 'Error: ' + msg;
+    vmTimer.finish(false);
+  } finally {
+    cancelBtn.disabled = true;
+    vmCancelled = false;
   }
 });
 
@@ -909,11 +1140,41 @@ function drawPianoRoll(notes) {
     ctx.fillText('No notes detected.', 12, 22);
     return;
   }
+  // For beatbox/drums mode the server hands us a `drum` label per note;
+  // when present we lay them out as labeled rows ordered by drum kind so
+  // the user can read the rhythm at a glance.
+  const isDrums = notes[0] && notes[0].drum;
+  const dur = Math.max(1, ...notes.map((n) => n.end));
+  const pad = 4;
+
+  if (isDrums) {
+    const order = ['Kick','Snare','Clap','LowTom','MidTom','HiTom',
+                   'ClosedHat','PedalHat','OpenHat','Crash','Ride','SideStick'];
+    const used = order.filter((d) => notes.some((n) => n.drum === d));
+    const rowH = (c.height - 2 * pad) / Math.max(1, used.length);
+    ctx.font = '11px monospace';
+    used.forEach((label, i) => {
+      const y = pad + i * rowH;
+      ctx.fillStyle = '#444';
+      ctx.fillRect(pad + 60, y + rowH / 2, c.width - 2 * pad - 60, 1);
+      ctx.fillStyle = '#cfcfd6';
+      ctx.fillText(label, pad + 4, y + rowH / 2 + 4);
+    });
+    for (const n of notes) {
+      const i = used.indexOf(n.drum);
+      if (i < 0) continue;
+      const x = pad + 60 + (n.start / dur) * (c.width - 2 * pad - 60);
+      const y = pad + i * rowH + rowH / 2 - 4;
+      const alpha = 0.4 + 0.6 * (n.velocity / 127);
+      ctx.fillStyle = `rgba(217, 119, 6, ${alpha})`;
+      ctx.fillRect(x, y, 8, 8);
+    }
+    return;
+  }
+
   const minPitch = Math.min(...notes.map((n) => n.pitch));
   const maxPitch = Math.max(...notes.map((n) => n.pitch));
   const span = Math.max(1, maxPitch - minPitch);
-  const dur = Math.max(1, ...notes.map((n) => n.end));
-  const pad = 4;
   for (const n of notes) {
     const x = pad + (n.start / dur) * (c.width - 2 * pad);
     const w = Math.max(2, ((n.end - n.start) / dur) * (c.width - 2 * pad));
