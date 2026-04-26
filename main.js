@@ -193,10 +193,28 @@ function sendToRenderer(channel, payload) {
   }
 }
 
+// Translate raw electron-updater errors (which can include 200KB of GitHub
+// 502 HTML when the API is having a bad day) into a short readable message.
+function friendlyUpdaterError(err) {
+  const raw = String(err && err.message || err || 'unknown');
+  // YAML/JSON parse errors against an HTML 502 page: detect tags or "502".
+  if (/^\s*<|<html|<\/?\w+>|Bad\s*Gateway|502\b/i.test(raw)) {
+    return "Couldn't reach GitHub right now - try again in a minute.";
+  }
+  if (/ENOTFOUND|EAI_AGAIN|ETIMEDOUT|network|offline/i.test(raw)) {
+    return "Network unavailable - check your connection.";
+  }
+  if (/rate.?limit/i.test(raw)) {
+    return "GitHub rate-limit hit - try again in a minute.";
+  }
+  // Trim ridiculously long messages.
+  return raw.length > 240 ? raw.slice(0, 240) + '...' : raw;
+}
+
 autoUpdater.on('checking-for-update', () => sendToRenderer('updater:status', { state: 'checking' }));
 autoUpdater.on('update-available', (info) => sendToRenderer('updater:status', { state: 'available', version: info && info.version }));
 autoUpdater.on('update-not-available', () => sendToRenderer('updater:status', { state: 'none' }));
-autoUpdater.on('error', (err) => sendToRenderer('updater:status', { state: 'error', message: String(err && err.message || err) }));
+autoUpdater.on('error', (err) => sendToRenderer('updater:status', { state: 'error', message: friendlyUpdaterError(err) }));
 autoUpdater.on('download-progress', (p) => sendToRenderer('updater:progress', { percent: p.percent }));
 autoUpdater.on('update-downloaded', (info) => {
   sendToRenderer('updater:downloaded', { version: info && info.version });
@@ -208,7 +226,7 @@ ipcMain.handle('updater:check', async () => {
     const r = await autoUpdater.checkForUpdates();
     return { ok: true, version: r && r.updateInfo && r.updateInfo.version };
   } catch (err) {
-    return { ok: false, reason: String(err && err.message || err) };
+    return { ok: false, reason: friendlyUpdaterError(err) };
   }
 });
 

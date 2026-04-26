@@ -506,20 +506,8 @@ cancelCookBtn.addEventListener('click', async () => {
 
 generateBtn.addEventListener('click', async () => {
   const prompt = $('#prompt').value.trim();
-  // Empty prompt is allowed: the server can run unconditional, or pure
-  // melody-conditioned if there's an ingredient. Only block if BOTH are empty
-  // and the user clicks twice without filling anything in.
-  if (!prompt && !state.songs.length) {
-    if (!generateBtn.dataset.confirmedSurprise) {
-      $('#prompt').setAttribute('placeholder',
-        'leave blank for a surprise, or write a vibe...');
-      $('#prompt').focus();
-      flashStoveStatus('Empty recipe + no ingredients = surprise. Click Cook again to confirm.');
-      generateBtn.dataset.confirmedSurprise = '1';
-      return;
-    }
-  }
-  generateBtn.dataset.confirmedSurprise = '';
+  // Cook is always clickable. Empty prompt + no ingredient = unconditional
+  // MusicGen, the server picks something up.
   const durationSec = parseInt($('#duration').value, 10);
 
   resultBox.classList.add('hidden');

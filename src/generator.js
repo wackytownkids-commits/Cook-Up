@@ -26,10 +26,11 @@ async function generateBeat({
   serverBase = DEFAULT_BASE,
   onProgress = () => {},
 }) {
-  if (!prompt || !prompt.trim()) throw new Error('Recipe is empty - describe the beat you want.');
+  // Empty prompt is fine: the server runs unconditional MusicGen if there
+  // are no references, melody-conditioned if there are. No client-side gate.
   onProgress('Sending to the stove...');
   const body = await postJson(`${serverBase}/generate`, {
-    prompt: prompt.trim(),
+    prompt: (prompt || '').trim(),
     duration: durationSec,
     heat,
     bpm,
