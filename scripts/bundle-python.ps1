@@ -52,11 +52,12 @@ Write-Host "Installing Flask (for Cookup's local server)..."
 & $Py -m pip install "flask>=3.0"
 
 Write-Host "Installing xformers (audiocraft imports this unconditionally)..."
+$xfPkgInit = Join-Path $Dest "Lib\site-packages\xformers\__init__.py"
 $xfokay = $false
 try {
-    & $Py -m pip install xformers 2>$null
-    if ($LASTEXITCODE -eq 0) { $xfokay = $true }
+    & $Py -m pip install xformers
 } catch {}
+if (Test-Path $xfPkgInit) { $xfokay = $true }
 if (-not $xfokay) {
     Write-Host "  xformers wheel unavailable for this Python/torch combo."
     Write-Host "  Writing a stub module so audiocraft imports succeed and falls"
@@ -66,7 +67,10 @@ if (-not $xfokay) {
     New-Item -ItemType Directory -Force -Path (Join-Path $xf "ops") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $xf "components") | Out-Null
     Set-Content (Join-Path $xf "__init__.py") '__version__ = "0.0.0-stub"'
-    Set-Content (Join-Path $xf "ops\__init__.py") 'def memory_efficient_attention(*a, **k):' "`n    raise NotImplementedError(""xformers stubbed - audiocraft uses native attention"")"
+    Set-Content (Join-Path $xf "ops\__init__.py") @'
+def memory_efficient_attention(*a, **k):
+    raise NotImplementedError("xformers stubbed - audiocraft uses native attention")
+'@
     Set-Content (Join-Path $xf "components\__init__.py") ''
     Set-Content (Join-Path $xf "components\attention.py") @'
 class Attention:
