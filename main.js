@@ -25,12 +25,30 @@ const store = new Store({
   }
 });
 
-const { generateBeat, checkHealth, warmup } = require('./src/generator');
+const {
+  generateBeat,
+  vocalToMidi,
+  applyEffects,
+  analyzeVocal,
+  checkHealth,
+  warmup,
+} = require('./src/generator');
 
 let mainWindow;
 let pyProc = null;
 
 const IS_WIN = process.platform === 'win32';
+
+function resolveIconPath() {
+  // Packaged: extraResources copies icon.ico/icon.png next to resources/.
+  // Dev: read from build/ in the project root.
+  const fname = IS_WIN ? 'icon.ico' : 'icon.png';
+  if (app.isPackaged) {
+    const packed = path.join(process.resourcesPath, fname);
+    if (fs.existsSync(packed)) return packed;
+  }
+  return path.join(__dirname, 'build', fname);
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -39,7 +57,7 @@ function createWindow() {
     minWidth: 440,
     minHeight: 680,
     backgroundColor: '#0e0e10',
-    icon: path.join(__dirname, 'build', IS_WIN ? 'icon.ico' : 'icon.png'),
+    icon: resolveIconPath(),
     // vibrancy / hidden inset title bar are mac-only; harmless on Windows
     titleBarStyle: IS_WIN ? 'default' : 'hiddenInset',
     vibrancy: IS_WIN ? undefined : 'under-window',
@@ -138,7 +156,21 @@ function stopPythonServer() {
 }
 
 app.whenReady().then(() => {
+  // Pin Windows taskbar grouping to our app id so the taskbar icon
+  // matches the BrowserWindow icon and the installed shortcut.
+  if (IS_WIN) {
+    try { app.setAppUserModelId('com.cory.cookup'); } catch (_) {}
+  }
   createWindow();
+  // Belt-and-suspenders: re-set the icon after window creation, since on
+  // some Windows builds the constructor option is silently dropped if the
+  // path resolves through asar.
+  if (IS_WIN && mainWindow) {
+    try {
+      const ico = resolveIconPath();
+      if (ico && fs.existsSync(ico)) mainWindow.setIcon(nativeImage.createFromPath(ico));
+    } catch (_) {}
+  }
   startPythonServer();
   if (app.isPackaged) {
     autoUpdater.checkForUpdatesAndNotify().catch((err) => log.warn('Update check failed', err));
@@ -239,4 +271,48 @@ ipcMain.on('beat:startDrag', (evt, filePath) => {
     icon: nativeImage.createFromPath(path.join(__dirname, 'assets', 'drag-icon.png'))
       .resize({ width: 64, height: 64 })
   });
+});
+
+// ---------- voice / effects IPC ----------
+
+// Save a WAV blob recorded in the renderer to a temp path so the Python
+// server (and downstream tools like fluidsynth) can read it from disk.
+ipcMain.handle('voice:save', async (_evt, { bytes, suffix = '.wav' }) => {
+  const dir = path.join(os.tmpdir(), 'cookup-voice');
+  fs.mkdirSync(dir, { recursive: true });
+  const ts = Date.now();
+  const file = path.join(dir, `recording-${ts}${suffix}`);
+  fs.writeFileSync(file, Buffer.from(bytes));
+  return file;
+});
+
+ipcMain.handle('voice:vocalToMidi', async (_evt, { vocalPath, instrument, isDrums }) => {
+  return vocalToMidi({
+    vocalPath,
+    instrument,
+    isDrums,
+    outputDir: store.get('outputDir'),
+  });
+});
+
+ipcMain.handle('fx:apply', async (_evt, { inputPath, chain }) => {
+  return applyEffects({
+    inputPath,
+    chain,
+    outputDir: store.get('outputDir'),
+  });
+});
+
+ipcMain.handle('fx:analyzeVocal', async (_evt, { inputPath }) => {
+  return analyzeVocal({ inputPath });
+});
+
+ipcMain.handle('files:pickAudio', async () => {
+  const res = await dialog.showOpenDialog(mainWindow, {
+    title: 'Pick an audio file',
+    properties: ['openFile'],
+    filters: [{ name: 'Audio', extensions: ['wav', 'mp3', 'aiff', 'aif', 'm4a', 'flac', 'ogg'] }],
+  });
+  if (res.canceled) return null;
+  return res.filePaths[0];
 });

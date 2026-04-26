@@ -28,6 +28,7 @@
   "build": {
     "appId": "com.cory.cookup",
     "productName": "Cookup",
+    "icon": "build/icon.ico",
     "files": [
       "main.js",
       "preload.js",
@@ -49,6 +50,14 @@
           "!**/*.pyc",
           "!**/tests/**"
         ]
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
       }
     ],
     "asarUnpack": [
@@ -109,7 +118,10 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Cookup"
+      "shortcutName": "Cookup",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
     },
     "publish": [
       {

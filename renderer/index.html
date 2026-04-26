@@ -20,91 +20,248 @@
     <button id="settings-btn" class="icon-btn" title="Settings">&#9881;</button>
   </header>
 
+  <nav class="tabs">
+    <button class="tab active" data-tab="stove">Stove</button>
+    <button class="tab" data-tab="spice">Spice Rack</button>
+    <button class="tab" data-tab="voicemidi">Voice &rarr; MIDI</button>
+    <button class="tab" data-tab="cookbook">Cookbook</button>
+  </nav>
+
   <main>
-    <section class="card">
-      <label class="lbl">Recipe</label>
-      <textarea id="prompt"
-        placeholder="e.g. dark trap beat, deep 808s, eerie piano, cinematic outro"
-        rows="3"></textarea>
-    </section>
+    <!-- ============== STOVE ============== -->
+    <section class="view active" id="view-stove">
+      <section class="card">
+        <label class="lbl">Recipe</label>
+        <textarea id="prompt"
+          placeholder="e.g. dark trap beat, deep 808s, eerie piano, cinematic outro"
+          rows="3"></textarea>
+      </section>
 
-    <section class="card">
-      <div class="row">
-        <label class="lbl">Ingredients <span class="muted">(optional reference songs)</span></label>
-        <button id="pick-songs" class="ghost">+ Add</button>
-      </div>
-      <ul id="song-list" class="songs"></ul>
-    </section>
+      <section class="card">
+        <div class="row">
+          <label class="lbl">Ingredients <span class="muted">(optional reference songs or recorded vocal)</span></label>
+          <button id="pick-songs" class="ghost">+ Add file</button>
+          <button id="record-vocal" class="ghost">&#127908; Record</button>
+        </div>
+        <ul id="song-list" class="songs"></ul>
+        <div id="recorder-status" class="muted small hidden"></div>
+      </section>
 
-    <section class="card stove">
-      <div class="burner-wrap">
-        <div class="burner" id="burner" data-bpm="90">
-          <div class="burner-glow"></div>
-          <div class="burner-grate">
-            <span></span><span></span><span></span><span></span>
-            <span></span><span></span><span></span><span></span>
+      <section class="card stove">
+        <div class="burner-wrap">
+          <div class="burner" id="burner" data-bpm="90">
+            <div class="burner-glow"></div>
+            <div class="burner-grate">
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+            </div>
+            <div class="burner-knob" id="burner-knob">
+              <div class="knob-pointer"></div>
+            </div>
+            <div class="burner-readout">
+              <span id="bpm-value">90</span>
+              <span class="unit">BPM</span>
+            </div>
           </div>
-          <div class="burner-knob" id="burner-knob">
-            <div class="knob-pointer"></div>
+          <div class="burner-caption">Tempo</div>
+        </div>
+
+        <div class="stove-controls">
+          <div>
+            <label class="lbl">Heat</label>
+            <div class="heat-group" id="heat-group">
+              <button class="heat" data-heat="simmer">Simmer</button>
+              <button class="heat active" data-heat="sear">Sear</button>
+              <button class="heat" data-heat="flambe">Flamb&eacute;</button>
+            </div>
           </div>
-          <div class="burner-readout">
-            <span id="bpm-value">90</span>
-            <span class="unit">BPM</span>
+          <div>
+            <label class="lbl">Cook time <span class="muted">(seconds, &le;30 sounds best)</span></label>
+            <input id="duration" type="number" min="4" max="120" value="15" step="1" />
           </div>
         </div>
-        <div class="burner-caption">Tempo</div>
+      </section>
+
+      <div class="cook-wrap">
+        <div class="flames" id="flames">
+          <span class="flame f1"></span>
+          <span class="flame f2"></span>
+          <span class="flame f3"></span>
+          <span class="flame f4"></span>
+          <span class="flame f5"></span>
+        </div>
+        <button id="generate" class="go">Cook</button>
       </div>
 
-      <div class="stove-controls">
-        <div>
-          <label class="lbl">Heat</label>
-          <div class="heat-group" id="heat-group">
-            <button class="heat" data-heat="simmer">Simmer</button>
-            <button class="heat active" data-heat="sear">Sear</button>
-            <button class="heat" data-heat="flambe">Flamb&eacute;</button>
-          </div>
+      <section id="status" class="status hidden">
+        <div class="status-row">
+          <div class="spinner"></div>
+          <div id="status-text">Working...</div>
+          <div id="status-time" class="status-time"></div>
         </div>
-        <div>
-          <label class="lbl">Cook time <span class="muted">(seconds, &le;30 sounds best)</span></label>
-          <input id="duration" type="number" min="4" max="120" value="15" step="1" />
+        <div class="status-bar">
+          <div class="status-bar-fill" id="status-bar-fill"></div>
         </div>
-      </div>
+      </section>
+
+      <section id="result" class="card result hidden">
+        <div class="lbl">Plated</div>
+        <div id="result-title" class="title"></div>
+        <audio id="preview-audio" controls preload="metadata"></audio>
+        <div id="drag-handle" class="drag-handle" draggable="true" title="Drag into your DAW">
+          <span class="drag-icon">&#9833;</span>
+          Drag into your DAW
+        </div>
+        <div class="row">
+          <button id="reveal" class="ghost">Show in folder</button>
+          <button id="again" class="ghost">Another plate</button>
+          <button id="send-to-spice" class="ghost">Season this &rarr; Spice Rack</button>
+        </div>
+      </section>
     </section>
 
-    <div class="cook-wrap">
-      <div class="flames" id="flames">
-        <span class="flame f1"></span>
-        <span class="flame f2"></span>
-        <span class="flame f3"></span>
-        <span class="flame f4"></span>
-        <span class="flame f5"></span>
-      </div>
-      <button id="generate" class="go">Cook</button>
-    </div>
+    <!-- ============== SPICE RACK ============== -->
+    <section class="view" id="view-spice">
+      <section class="card">
+        <div class="row">
+          <label class="lbl">Source audio</label>
+          <button id="spice-pick" class="ghost">+ Pick file</button>
+          <button id="spice-record" class="ghost">&#127908; Record</button>
+          <span id="spice-source-name" class="muted small">No source loaded</span>
+        </div>
+        <audio id="spice-source-audio" controls preload="metadata" class="hidden"></audio>
+      </section>
 
-    <section id="status" class="status hidden">
-      <div class="status-row">
-        <div class="spinner"></div>
-        <div id="status-text">Working...</div>
-        <div id="status-time" class="status-time"></div>
+      <section class="card">
+        <div class="row">
+          <label class="lbl">Magic Vocal</label>
+          <button id="magic-vocal" class="ghost">&#10024; Analyze + suggest preset</button>
+        </div>
+        <div id="magic-result" class="muted small"></div>
+      </section>
+
+      <section class="card">
+        <label class="lbl">Presets</label>
+        <div class="preset-grid" id="preset-grid"></div>
+      </section>
+
+      <section class="card">
+        <label class="lbl">Effects chain <span class="muted">(top to bottom = signal flow)</span></label>
+        <div class="row">
+          <button id="add-fx-btn" class="ghost">+ Add effect</button>
+          <select id="add-fx-select">
+            <option value="Compressor">Compressor</option>
+            <option value="Reverb">Reverb</option>
+            <option value="Delay">Delay</option>
+            <option value="PitchShift">Pitch Shift</option>
+            <option value="Chorus">Chorus</option>
+            <option value="Phaser">Phaser</option>
+            <option value="Distortion">Distortion</option>
+            <option value="Limiter">Limiter</option>
+            <option value="HighpassFilter">Highpass</option>
+            <option value="LowpassFilter">Lowpass</option>
+            <option value="LadderFilter">Ladder Filter</option>
+            <option value="NoiseGate">Noise Gate</option>
+            <option value="Gain">Gain</option>
+            <option value="AutoTune">Auto-Tune</option>
+            <option value="DeEsser">De-Esser</option>
+            <option value="Doubler">Doubler</option>
+            <option value="VocalExciter">Vocal Exciter</option>
+          </select>
+          <button id="clear-chain" class="ghost">Clear</button>
+        </div>
+        <ul id="fx-chain" class="fx-chain"></ul>
+      </section>
+
+      <div class="cook-wrap">
+        <button id="apply-fx" class="go">Apply chain</button>
       </div>
-      <div class="status-bar">
-        <div class="status-bar-fill" id="status-bar-fill"></div>
-      </div>
+
+      <section id="spice-status" class="status hidden">
+        <div class="status-row">
+          <div class="spinner"></div>
+          <div id="spice-status-text">Processing...</div>
+        </div>
+      </section>
+
+      <section id="spice-result" class="card result hidden">
+        <div class="lbl">Seasoned</div>
+        <div id="spice-result-title" class="title"></div>
+        <audio id="spice-preview-audio" controls preload="metadata"></audio>
+        <div class="row">
+          <button id="spice-ab" class="ghost">A/B with original</button>
+          <button id="spice-reveal" class="ghost">Show in folder</button>
+          <button id="spice-drag" class="drag-handle" draggable="true">
+            <span class="drag-icon">&#9833;</span>
+            Drag into your DAW
+          </button>
+        </div>
+      </section>
     </section>
 
-    <section id="result" class="card result hidden">
-      <div class="lbl">Plated</div>
-      <div id="result-title" class="title"></div>
-      <audio id="preview-audio" controls preload="metadata"></audio>
-      <div id="drag-handle" class="drag-handle" draggable="true" title="Drag into your DAW">
-        <span class="drag-icon">&#9833;</span>
-        Drag into your DAW
+    <!-- ============== VOICE -> MIDI ============== -->
+    <section class="view" id="view-voicemidi">
+      <section class="card">
+        <div class="row">
+          <label class="lbl">Vocal source</label>
+          <button id="vm-pick" class="ghost">+ Pick file</button>
+          <button id="vm-record" class="ghost">&#127908; Record</button>
+          <span id="vm-source-name" class="muted small">No source loaded</span>
+        </div>
+        <audio id="vm-source-audio" controls preload="metadata" class="hidden"></audio>
+      </section>
+
+      <section class="card">
+        <label class="lbl">Render with instrument</label>
+        <div class="instrument-grid" id="instrument-grid">
+          <button class="inst active" data-program="0" data-drums="false">Piano</button>
+          <button class="inst" data-program="4" data-drums="false">Electric Piano</button>
+          <button class="inst" data-program="80" data-drums="false">Synth Lead</button>
+          <button class="inst" data-program="88" data-drums="false">Synth Pad</button>
+          <button class="inst" data-program="33" data-drums="false">Bass</button>
+          <button class="inst" data-program="48" data-drums="false">Strings</button>
+          <button class="inst" data-program="56" data-drums="false">Brass</button>
+          <button class="inst" data-program="0"  data-drums="true">Drums</button>
+        </div>
+      </section>
+
+      <div class="cook-wrap">
+        <button id="vm-go" class="go">Transcribe &amp; render</button>
       </div>
-      <div class="row">
-        <button id="reveal" class="ghost">Show in folder</button>
-        <button id="again" class="ghost">Another plate</button>
-      </div>
+
+      <section id="vm-status" class="status hidden">
+        <div class="status-row">
+          <div class="spinner"></div>
+          <div id="vm-status-text">Listening for notes...</div>
+        </div>
+      </section>
+
+      <section id="vm-result" class="card result hidden">
+        <div class="lbl">Notes detected</div>
+        <canvas id="piano-roll" width="480" height="160"></canvas>
+        <audio id="vm-preview-audio" controls preload="metadata"></audio>
+        <div class="row">
+          <button id="vm-reveal" class="ghost">Show in folder</button>
+          <button id="vm-drag" class="drag-handle" draggable="true">
+            <span class="drag-icon">&#9833;</span>
+            Drag rendered audio
+          </button>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============== COOKBOOK ============== -->
+    <section class="view" id="view-cookbook">
+      <section class="card">
+        <div class="row">
+          <label class="lbl">Recent outputs</label>
+          <button id="cookbook-refresh" class="ghost">Refresh</button>
+          <button id="cookbook-open-folder" class="ghost">Open output folder</button>
+        </div>
+        <p class="muted small">Files saved by Cookup live in your output folder
+          (set in Settings). The Cookbook tab will list them here in a future
+          release &mdash; for now, click "Open output folder" to browse.</p>
+      </section>
     </section>
   </main>
 
@@ -125,10 +282,10 @@
       </div>
 
       <p class="muted small">
-        Cookup runs MusicGen locally on your machine (CPU-only build). The first
-        Cook of each session is slower while the model warms up. Reference songs
-        shape melody contour only &mdash; output won't sound timbrally identical
-        to the input.
+        Cookup runs MusicGen + basic-pitch + pedalboard locally on your machine
+        (CPU-only build). The first Cook of each session is slower while the
+        model warms up. Reference songs shape melody contour only &mdash; output
+        won't sound timbrally identical to the input.
       </p>
 
       <div class="row">

@@ -1,22 +1,21 @@
-// Cookup - talks to the local MusicGen Python server.
-// The server is spawned by main.js and listens on http://127.0.0.1:COOKUP_PORT.
+// Cookup - HTTP client for the local MusicGen + effects + voice server.
 
 const fetch = require('node-fetch');
 
 const DEFAULT_BASE = 'http://127.0.0.1:7781';
 
-/**
- * generateBeat
- *   prompt           - vibe description
- *   referenceSongs   - [{ path, name }] first one is used as melody conditioning
- *   heat             - "simmer" | "sear" | "flambe"
- *   bpm              - number | null
- *   durationSec      - 4..30
- *   outputDir        - absolute path
- *   serverBase       - override base URL (defaults to DEFAULT_BASE)
- *   onProgress(msg)  - status updates
- * returns { filePath, durationSec, title }
- */
+async function postJson(url, payload, timeoutMs = 10 * 60 * 1000) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    timeout: timeoutMs,
+    body: JSON.stringify(payload || {}),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `Server error ${res.status}`);
+  return body;
+}
+
 async function generateBeat({
   prompt,
   referenceSongs = [],
@@ -25,42 +24,50 @@ async function generateBeat({
   durationSec = 15,
   outputDir,
   serverBase = DEFAULT_BASE,
-  onProgress = () => {}
+  onProgress = () => {},
 }) {
-  if (!prompt || !prompt.trim()) {
-    throw new Error('Recipe is empty - describe the beat you want.');
-  }
-
+  if (!prompt || !prompt.trim()) throw new Error('Recipe is empty - describe the beat you want.');
   onProgress('Sending to the stove...');
-
-  const payload = {
+  const body = await postJson(`${serverBase}/generate`, {
     prompt: prompt.trim(),
     duration: durationSec,
     heat,
     bpm,
-    reference_paths: referenceSongs.map(s => s.path),
-    output_dir: outputDir
-  };
-
-  const res = await fetch(`${serverBase}/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    // MusicGen generation can take a while on CPU - give it up to 10 min.
-    timeout: 10 * 60 * 1000,
-    body: JSON.stringify(payload)
+    reference_paths: referenceSongs.map((s) => s.path),
+    output_dir: outputDir,
   });
-
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.error || `Server error ${res.status}`);
-  }
-
   onProgress('Done.');
   return {
     filePath: body.file,
     durationSec: body.duration,
-    title: body.file ? body.file.split(/[\\/]/).pop() : 'beat.wav'
+    title: body.file ? body.file.split(/[\\/]/).pop() : 'beat.wav',
   };
+}
+
+async function vocalToMidi({ vocalPath, instrument = 0, isDrums = false, outputDir, serverBase = DEFAULT_BASE }) {
+  const body = await postJson(`${serverBase}/vocal-to-midi`, {
+    vocal_path: vocalPath,
+    instrument,
+    is_drums: isDrums,
+    output_dir: outputDir,
+  });
+  return body;
+}
+
+async function applyEffects({ inputPath, chain, outputDir, serverBase = DEFAULT_BASE }) {
+  const body = await postJson(`${serverBase}/effects`, {
+    input_path: inputPath,
+    chain,
+    output_dir: outputDir,
+  });
+  return body;
+}
+
+async function analyzeVocal({ inputPath, serverBase = DEFAULT_BASE }) {
+  const body = await postJson(`${serverBase}/analyze-vocal`, {
+    input_path: inputPath,
+  });
+  return body;
 }
 
 async function checkHealth(serverBase = DEFAULT_BASE) {
@@ -76,9 +83,17 @@ async function checkHealth(serverBase = DEFAULT_BASE) {
 async function warmup(serverBase = DEFAULT_BASE) {
   const res = await fetch(`${serverBase}/warmup`, {
     method: 'POST',
-    timeout: 10 * 60 * 1000
+    timeout: 10 * 60 * 1000,
   });
   return res.json();
 }
 
-module.exports = { generateBeat, checkHealth, warmup, DEFAULT_BASE };
+module.exports = {
+  generateBeat,
+  vocalToMidi,
+  applyEffects,
+  analyzeVocal,
+  checkHealth,
+  warmup,
+  DEFAULT_BASE,
+};

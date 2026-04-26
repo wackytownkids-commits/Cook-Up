@@ -83,12 +83,60 @@ class AttentionMask:
     Write-Host "  Stub xformers module created at $xf"
 }
 
+Write-Host "Installing pedalboard (effects rack)..."
+& $Py -m pip install pedalboard
+
+Write-Host "Installing scipy (filters / DSP for DIY effects)..."
+& $Py -m pip install scipy
+
+Write-Host "Installing basic-pitch with ONNX backend (vocal-to-MIDI)..."
+# ONNX runtime is ~50MB vs TensorFlow's ~600MB. basic-pitch supports both;
+# the ICASSP 2022 model is bundled with the package itself.
+& $Py -m pip install "basic-pitch[onnx]"
+
+Write-Host "Installing pretty_midi + mido (MIDI inspection / piano roll)..."
+& $Py -m pip install pretty_midi mido
+
+# ---- Bundle a soundfont so the vocal-to-MIDI flow can render to audio. ----
+# FluidR3Mono_GM.sf3 (~22MB, MIT-licensed by S. Christian Collins, mono SF3
+# variant of FluidR3) covers all 128 General MIDI programs plus drums.
+# Smaller than the FluidR3 SF2 (~140MB) because of Vorbis-compressed samples.
+$AssetsDir = Join-Path $Dest "cookup-assets"
+New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
+$SoundFont = Join-Path $AssetsDir "FluidR3Mono_GM.sf3"
+if (-not (Test-Path $SoundFont)) {
+    Write-Host "Downloading FluidR3Mono_GM.sf3 (~22MB)..."
+    & curl.exe -fL --retry 3 --retry-delay 2 -o $SoundFont `
+        "https://github.com/musescore/MuseScore/raw/master/share/sound/FluidR3Mono_GM.sf3"
+    if (-not (Test-Path $SoundFont)) { throw "SoundFont download failed" }
+}
+
+# ---- Bundle FluidSynth Windows binary so we can render MIDI to WAV. ----
+# pyfluidsynth requires libfluidsynth, which doesn't ship in pip wheels on
+# Windows; instead we call the official fluidsynth.exe as a subprocess.
+$FsZip = Join-Path $Work "fluidsynth.zip"
+$FsDir = Join-Path $AssetsDir "fluidsynth"
+if (-not (Test-Path (Join-Path $FsDir "bin\fluidsynth.exe"))) {
+    Write-Host "Downloading FluidSynth 2.4.0 Windows binary (~6MB)..."
+    if (-not (Test-Path $FsZip)) {
+        & curl.exe -fL --retry 3 --retry-delay 2 -o $FsZip `
+            "https://github.com/FluidSynth/fluidsynth/releases/download/v2.4.0/fluidsynth-2.4.0-win10-x64.zip"
+    }
+    Expand-Archive -Path $FsZip -DestinationPath $FsDir -Force
+}
+
 Write-Host "Trimming cache..."
 Get-ChildItem -Path $Dest -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem -Path $Dest -Recurse -Directory -Filter "tests" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Sanity check..."
-& $Py -c "import flask, torch, torchaudio, audiocraft, soundfile; print('[bundle] all imports OK')"
+& $Py -c "import flask, torch, torchaudio, audiocraft, soundfile, pedalboard, scipy, librosa, pretty_midi; print('[bundle] core imports OK')"
+try {
+    & $Py -c "import basic_pitch; print('[bundle] basic-pitch OK')"
+    if ($LASTEXITCODE -ne 0) { Write-Host "WARN: basic-pitch import returned non-zero" }
+} catch {
+    Write-Host "WARN: basic-pitch import failed - vocal-to-MIDI will be deferred at runtime"
+}
 
 Write-Host ""
 Write-Host "python-runtime\ ready. Continue with: npm run dist:win"

@@ -33,6 +33,13 @@ contextBridge.exposeInMainWorld('api', {
 
   startDrag: (filePath) => ipcRenderer.send('beat:startDrag', filePath),
 
+  // Voice / effects
+  saveRecording: (bytes) => ipcRenderer.invoke('voice:save', { bytes }),
+  vocalToMidi: (payload) => ipcRenderer.invoke('voice:vocalToMidi', payload),
+  applyFx: (payload) => ipcRenderer.invoke('fx:apply', payload),
+  analyzeVocal: (payload) => ipcRenderer.invoke('fx:analyzeVocal', payload),
+  pickAudio: () => ipcRenderer.invoke('files:pickAudio'),
+
   // Auto-updater
   getVersion: () => ipcRenderer.invoke('app:version'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),

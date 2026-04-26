@@ -48,6 +48,15 @@ There is also a manual **Check for updates** button in Settings.
 
 - Updates only fire in the packaged build (`app.isPackaged`), so running
   `npm start` in dev never triggers them.
+- **Windows icon cache:** if a release ships an updated icon and users still
+  see the old one on the desktop shortcut, taskbar, or alt-tab after they
+  upgrade, that's the Windows icon cache, not a build problem. Tell them to
+  open `cmd.exe` and run:
+  ```
+  ie4uinit.exe -show
+  ```
+  (Or sign out and back in.) That flushes `%localappdata%\IconCache.db` and
+  Windows re-reads the icon from the .exe.
 - Logs from electron-updater are written to the app's log directory
   (via `electron-log`). On Windows that's
   `%APPDATA%\Cookup\logs\main.log`.
