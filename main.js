@@ -22,9 +22,26 @@ const store = new Store({
     outputDir: path.join(os.homedir(), 'Music', 'Cookup'),
     pythonPath: '',
     serverPort: 7781,
-    inputDeviceId: ''
+    inputDeviceId: '',
+    proEnabled: false,
+    licenseKey: ''
   }
 });
+
+// Stub license validator. Real wiring to a payment provider (Gumroad,
+// Lemon Squeezy, Polar) lands when we pick one. Until then, any key
+// matching KU-PRO-{16 alphanumeric chars} unlocks Pro. The dev toggle
+// in Settings (Ctrl+Shift+P) bypasses this entirely for self-testing.
+function validateLicense(key) {
+  if (!key) return false;
+  return /^KU-PRO-[A-Za-z0-9]{16}$/.test(String(key).trim());
+}
+
+function recomputeProState() {
+  const dev = store.get('proEnabled');
+  const keyValid = validateLicense(store.get('licenseKey'));
+  return Boolean(dev || keyValid);
+}
 
 const {
   generateBeat,
@@ -243,8 +260,30 @@ ipcMain.handle('settings:get', () => ({
   outputDir: store.get('outputDir'),
   pythonPath: store.get('pythonPath'),
   serverPort: store.get('serverPort'),
-  inputDeviceId: store.get('inputDeviceId')
+  inputDeviceId: store.get('inputDeviceId'),
+  proEnabled: recomputeProState(),
+  licenseKey: store.get('licenseKey'),
+  // Surface dev-toggle separately from the effective pro state so the
+  // settings dialog can show "Plan: Pro (dev)" vs "Plan: Pro (license)".
+  proSource: store.get('proEnabled') ? 'dev'
+            : (validateLicense(store.get('licenseKey')) ? 'license' : 'free')
 }));
+
+ipcMain.handle('app:setLicense', (_evt, key) => {
+  const trimmed = String(key || '').trim();
+  store.set('licenseKey', trimmed);
+  const valid = validateLicense(trimmed);
+  return { valid, proEnabled: recomputeProState() };
+});
+
+ipcMain.handle('app:toggleDevPro', () => {
+  // Dev-only backdoor. Hidden behind Ctrl+Shift+P in the Settings dialog.
+  // No UI affordance points at it; it's discoverable from this changelog
+  // / source code. Do not advertise.
+  const next = !store.get('proEnabled');
+  store.set('proEnabled', next);
+  return { proEnabled: recomputeProState(), dev: next };
+});
 
 ipcMain.handle('settings:set', (_evt, patch) => {
   for (const [k, v] of Object.entries(patch || {})) store.set(k, v);

@@ -16,23 +16,148 @@ const state = {
   vm: { sourcePath: null, lastResult: null, instrumentProgram: 0, isDrums: false, mode: 'melodic' },
   fxChain: [],
   inputDeviceId: '',
+  proEnabled: false,
+  proSource: 'free',
 };
 
-// Pull the persisted mic deviceId on launch so the very first recording
-// uses the user's choice without them having to open Settings first.
-window.api.getSettings().then((s) => { state.inputDeviceId = s.inputDeviceId || ''; });
+// Pull persisted prefs on launch: mic deviceId so the very first recording
+// uses the user's choice, plus Pro state so gates render correctly.
+window.api.getSettings().then((s) => {
+  state.inputDeviceId = s.inputDeviceId || '';
+  state.proEnabled = !!s.proEnabled;
+  state.proSource = s.proSource || 'free';
+  applyProGates();
+});
 
-// Show a soft cap warning when the user types a long Cook time, so they
-// know they're heading into 15+ minute territory.
+// ==================== Pro tier ====================
+
+function applyProGates() {
+  const pro = state.proEnabled;
+  // Voice -> MIDI: swap the lock indicator and the gate landing card.
+  const lock = document.getElementById('vm-lock');
+  if (lock) lock.classList.toggle('hidden', pro);
+  const gate = document.getElementById('vm-gate');
+  const content = document.getElementById('vm-content');
+  if (gate && content) {
+    gate.classList.toggle('hidden', pro);
+    content.classList.toggle('hidden', !pro);
+  }
+  // Stove duration: amber border + warning when free + value > 60.
+  if (durationInput) {
+    updateDurationGate();
+  }
+  // Settings plan badge.
+  const badge = document.getElementById('plan-badge');
+  if (badge) {
+    if (pro) {
+      badge.textContent = state.proSource === 'dev' ? 'Pro (dev)' : 'Pro';
+      badge.classList.remove('plan-free');
+      badge.classList.add('plan-pro');
+    } else {
+      badge.textContent = 'Free';
+      badge.classList.add('plan-free');
+      badge.classList.remove('plan-pro');
+    }
+  }
+  const upgrade = document.getElementById('plan-upgrade');
+  if (upgrade) upgrade.classList.toggle('hidden', pro);
+}
+
+function showInfoModal(title, body) {
+  const m = document.getElementById('info-modal');
+  if (title) document.getElementById('info-title').textContent = title;
+  if (body) document.getElementById('info-body').innerHTML = body;
+  m.classList.remove('hidden');
+}
+document.getElementById('info-close').addEventListener('click', () => {
+  document.getElementById('info-modal').classList.add('hidden');
+});
+
+function showDevToast(msg) {
+  const t = document.getElementById('dev-toast');
+  document.getElementById('dev-toast-text').textContent = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 2200);
+}
+document.getElementById('dev-toast-dismiss').addEventListener('click', () => {
+  document.getElementById('dev-toast').classList.add('hidden');
+});
+
+// Upgrade buttons (Stove, Voice->MIDI gate, Settings) all open the same
+// info modal. Real payment integration lives in v1.2+.
+function openUpgradeModal() {
+  showInfoModal('Pro coming soon',
+    'Cook Up Pro is in development. For now, email <b>cory@cookup.app</b> if you want early access, or use the dev toggle in Settings (<i>Ctrl+Shift+P</i>) to test Pro features locally.');
+}
+document.getElementById('vm-upgrade').addEventListener('click', openUpgradeModal);
+document.getElementById('vm-learn').addEventListener('click', openUpgradeModal);
+document.getElementById('plan-upgrade').addEventListener('click', openUpgradeModal);
+
+// License key save.
+document.getElementById('s-license-save').addEventListener('click', async () => {
+  const key = document.getElementById('s-license').value;
+  const msg = document.getElementById('s-license-msg');
+  const r = await window.api.setLicense(key);
+  if (r.valid) {
+    msg.textContent = 'License accepted - Pro unlocked.';
+    msg.style.color = '#86efac';
+  } else if (key && key.trim()) {
+    msg.textContent = 'That key didn\'t validate. Check the format (KU-PRO-...).';
+    msg.style.color = '#ffb1bc';
+  } else {
+    msg.textContent = '';
+  }
+  // Refresh state from main and re-apply gates.
+  const s = await window.api.getSettings();
+  state.proEnabled = !!s.proEnabled;
+  state.proSource = s.proSource || 'free';
+  applyProGates();
+});
+
+// Dev backdoor: Ctrl+Shift+P while Settings dialog is open toggles dev Pro.
+// Not surfaced in the UI on purpose; intentional discoverability via source.
+document.addEventListener('keydown', async (e) => {
+  if (!(e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p'))) return;
+  if (settingsModal.classList.contains('hidden')) return;
+  e.preventDefault();
+  const r = await window.api.toggleDevPro();
+  state.proEnabled = !!r.proEnabled;
+  state.proSource = r.dev ? 'dev' : (state.proEnabled ? 'license' : 'free');
+  applyProGates();
+  showDevToast(r.dev ? 'Dev: Pro mode enabled' : 'Dev: Pro mode disabled');
+});
+
+// Cook time UX has two layers:
+//   1. soft warning above 60s (15+ min wall-time, sliding-window stitching)
+//   2. hard Pro gate: free tier capped at 60s, amber border + Pro CTA above
 const durationInput = document.getElementById('duration');
 const durationWarn = document.getElementById('duration-warn');
-if (durationInput && durationWarn) {
-  const updateDurationWarn = () => {
-    const v = parseInt(durationInput.value, 10) || 0;
-    durationWarn.classList.toggle('hidden', v <= 60);
-  };
-  durationInput.addEventListener('input', updateDurationWarn);
-  updateDurationWarn();
+function updateDurationGate() {
+  if (!durationInput || !durationWarn) return;
+  const v = parseInt(durationInput.value, 10) || 0;
+  const overSoft = v > 60;
+  durationWarn.classList.toggle('hidden', !overSoft);
+  if (overSoft && !state.proEnabled) {
+    durationInput.classList.add('pro-locked');
+    durationWarn.innerHTML =
+      '<b>Cook Time over 60s requires Pro.</b> Free tier caps at 60s. ' +
+      '<a href="#" id="duration-upgrade-link">Upgrade</a>';
+    const link = document.getElementById('duration-upgrade-link');
+    if (link) link.addEventListener('click', (e) => { e.preventDefault(); openUpgradeModal(); });
+  } else if (overSoft) {
+    durationInput.classList.remove('pro-locked');
+    durationWarn.innerHTML =
+      '<b>Heads up:</b> durations &gt;60s use sliding-window stitching ' +
+      '(model regenerates every 18s with the prior chunk as primer). ' +
+      'Quality degrades past 30s on CPU. Expect 15&ndash;25 min wall-time ' +
+      'for &gt;120s. The Cancel button works during cook.';
+  } else {
+    durationInput.classList.remove('pro-locked');
+  }
+}
+if (durationInput) {
+  durationInput.addEventListener('input', updateDurationGate);
+  updateDurationGate();
 }
 
 // ==================== Tabs ====================
@@ -63,7 +188,12 @@ async function openSettings() {
   $('#s-py').value = s.pythonPath || '';
   $('#s-port').value = s.serverPort || 7781;
   $('#s-out').value = s.outputDir || '';
+  $('#s-license').value = s.licenseKey || '';
   state.inputDeviceId = s.inputDeviceId || '';
+  state.proEnabled = !!s.proEnabled;
+  state.proSource = s.proSource || 'free';
+  applyProGates();
+  document.getElementById('s-license-msg').textContent = '';
   await refreshMicList();
   try { $('#s-version').textContent = 'v' + (await window.api.getVersion()); } catch (_) {}
   settingsModal.classList.remove('hidden');
@@ -526,7 +656,13 @@ generateBtn.addEventListener('click', async () => {
   const prompt = $('#prompt').value.trim();
   // Cook is always clickable. Empty prompt + no ingredient = unconditional
   // MusicGen, the server picks something up.
-  const durationSec = parseInt($('#duration').value, 10);
+  let durationSec = parseInt($('#duration').value, 10);
+  // Pro gate on duration. Show toast and bail; don't silently clamp because
+  // the user explicitly typed something they wanted.
+  if (durationSec > 60 && !state.proEnabled) {
+    flashStoveStatus('This duration requires Pro. Stick to ≤60s or upgrade.');
+    return;
+  }
 
   resultBox.classList.add('hidden');
   statusBox.classList.remove('hidden');

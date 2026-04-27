@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('api', {
   pickAudio: () => ipcRenderer.invoke('files:pickAudio'),
   cancelJob: () => ipcRenderer.invoke('cook:cancel'),
 
+  // Pro tier (license / dev toggle)
+  setLicense: (key) => ipcRenderer.invoke('app:setLicense', key),
+  toggleDevPro: () => ipcRenderer.invoke('app:toggleDevPro'),
+
   // Auto-updater
   getVersion: () => ipcRenderer.invoke('app:version'),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),

@@ -683,3 +683,61 @@ button.recording {
   font-size: 12px;
   color: #cfcfd6;
 }
+
+/* ---------- Pro tier UI ---------- */
+.lock-mark { font-size: 10px; opacity: 0.85; margin-left: 4px; }
+
+.pro-gate {
+  text-align: center;
+  padding: 28px 22px;
+  background: rgba(217, 119, 6, 0.06);
+  border: 1px dashed rgba(217, 119, 6, 0.35);
+}
+.pro-gate-icon { font-size: 36px; margin-bottom: 8px; }
+.pro-gate-title {
+  margin: 4px 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--kitchen-cream);
+}
+.pro-gate-body {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: #b8bcc4;
+  line-height: 1.5;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.plan-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 4px;
+}
+.plan-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+.plan-badge.plan-free {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b8bcc4;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.plan-badge.plan-pro {
+  background: rgba(217, 119, 6, 0.22);
+  color: var(--kitchen-cream);
+  border: 1px solid var(--kitchen-orange);
+}
+#plan-upgrade { margin-left: auto; }
+
+input.pro-locked {
+  border-color: var(--kitchen-orange) !important;
+  box-shadow: 0 0 0 1px rgba(217, 119, 6, 0.35);
+}
+
+/* Reuse update-toast styling for the dev toast (tinted slightly different). */
+#dev-toast { border-color: rgba(110, 200, 255, 0.35); }

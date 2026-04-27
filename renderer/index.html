@@ -23,7 +23,7 @@
   <nav class="tabs">
     <button class="tab active" data-tab="stove">Stove</button>
     <button class="tab" data-tab="spice">Spice Rack</button>
-    <button class="tab" data-tab="voicemidi">Voice &rarr; MIDI</button>
+    <button class="tab" data-tab="voicemidi" id="tab-voicemidi">Voice &rarr; MIDI <span id="vm-lock" class="lock-mark hidden">&#128274;</span></button>
     <button class="tab" data-tab="cookbook">Cookbook</button>
   </nav>
 
@@ -218,6 +218,21 @@
 
     <!-- ============== VOICE -> MIDI ============== -->
     <section class="view" id="view-voicemidi">
+      <section id="vm-gate" class="card pro-gate hidden">
+        <div class="pro-gate-icon">&#128274;</div>
+        <h2 class="pro-gate-title">Voice &rarr; MIDI is a Pro feature</h2>
+        <p class="pro-gate-body">
+          Sing, hum, or beatbox into the mic and Cook Up turns it into a real
+          instrument or drum kit. Melodic, Bass, Lead Synth, and Drums modes
+          render through a bundled GM SoundFont via FluidSynth.
+        </p>
+        <div class="row" style="justify-content:center; gap:10px;">
+          <button id="vm-upgrade" class="go small">Upgrade to Pro</button>
+          <button id="vm-learn" class="ghost">Learn more</button>
+        </div>
+      </section>
+
+      <div id="vm-content">
       <section class="card">
         <div class="row">
           <label class="lbl">Vocal source</label>
@@ -292,6 +307,7 @@
           </button>
         </div>
       </section>
+      </div><!-- /#vm-content -->
     </section>
 
     <!-- ============== COOKBOOK ============== -->
@@ -312,6 +328,23 @@
   <div id="settings" class="modal hidden">
     <div class="modal-card">
       <h3>Settings</h3>
+
+      <div class="plan-row">
+        <span class="lbl" style="margin:0">Plan</span>
+        <span id="plan-badge" class="plan-badge plan-free">Free</span>
+        <button id="plan-upgrade" class="go small">Upgrade to Pro</button>
+      </div>
+      <p class="muted small" id="plan-features">
+        Pro unlocks: Voice &rarr; MIDI, long-form generation (&gt;60s), Full Song
+        mode (coming in v1.2.0).
+      </p>
+      <div class="row">
+        <input id="s-license" type="text" placeholder="License key (KU-PRO-...)" />
+        <button id="s-license-save" class="ghost">Save</button>
+      </div>
+      <div id="s-license-msg" class="muted small"></div>
+
+      <hr style="border:none; border-top:1px solid rgba(255,255,255,0.06); margin:12px 0;" />
 
       <label class="lbl">Python interpreter <span class="muted">(optional)</span></label>
       <input id="s-py" type="text" placeholder="auto-detected" />
@@ -355,6 +388,26 @@
     <span id="update-toast-text">Update ready</span>
     <button id="update-restart" class="go small">Restart &amp; install</button>
     <button id="update-dismiss" class="icon-btn" title="Dismiss">&times;</button>
+  </div>
+
+  <div id="info-modal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="info-title">Pro coming soon</h3>
+      <p id="info-body" class="muted small">
+        Cook Up Pro is in development. For now, email
+        <b>cory@cookup.app</b> if you want early access, or use the dev
+        toggle in Settings (<i>Ctrl+Shift+P</i>) to test Pro features
+        locally.
+      </p>
+      <div class="row end">
+        <button id="info-close" class="ghost">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="dev-toast" class="update-toast hidden">
+    <span id="dev-toast-text"></span>
+    <button id="dev-toast-dismiss" class="icon-btn" title="Dismiss">&times;</button>
   </div>
 
   <script src="renderer.js"></script>
