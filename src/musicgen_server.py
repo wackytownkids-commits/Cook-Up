@@ -125,49 +125,53 @@ def safe_filename(stem: str, suffix: str = ".wav") -> str:
     return f"{safe}__{stamp}{suffix}"
 
 
-def smooth_chunk_boundaries(audio_np, sample_rate, chunk_seconds=18.0, fade_seconds=0.075):
-    """Equal-power crossfade over chunk boundaries.
+def smooth_chunk_boundaries(audio_np, sample_rate,
+                            max_duration_s=30.0, extend_stride_s=18.0,
+                            fade_seconds=0.012):
+    """De-click each sliding-window stitch boundary in a long MusicGen output.
 
-    MusicGen >30s outputs are autoregressive sliding windows stitched without
-    a crossfade, which often clicks at boundaries. We can't see the exact
-    stitch points after the fact, but the audiocraft default extend_stride
-    is 18s, so we apply a short equal-power fade every 18s as a best-effort
-    de-click. fade_seconds is the half-width of the fade region.
+    Audiocraft's MusicGen generates >30s tracks by sliding window: the first
+    chunk is `max_duration` seconds (30s default), and each subsequent chunk
+    contributes `extend_stride` seconds (18s default). The final tensor is
+    the chunks concatenated with hard cuts at each stride, so for a 155s
+    output the boundaries land at:
+        30s, 48s, 66s, 84s, 102s, 120s, 138s  (= 7 boundaries)
+
+    A real overlap-add crossfade isn't possible after the fact (we don't
+    have the overlapping audio anymore - audiocraft already discarded the
+    primer region). The next best thing is a brief raised-cosine "valley"
+    centered on each boundary: a ~24ms dip down to ~88% level, smoothing
+    any sample-level discontinuity without audibly attenuating the content.
+
+    Returns audio with same shape as input. Prints the boundary count.
     """
     import numpy as np
-    if audio_np.ndim == 1:
-        audio_np = audio_np[:, None]
-    n_samples, n_ch = audio_np.shape
+    n_samples = audio_np.shape[0]
     fade_n = max(8, int(fade_seconds * sample_rate))
-    chunk_n = int(chunk_seconds * sample_rate)
-    if n_samples <= chunk_n + fade_n:
-        return audio_np  # short clip, nothing to do
-    # Equal-power windows.
-    t = np.linspace(0, np.pi / 2, fade_n, endpoint=False)
-    fade_in = np.sin(t)[:, None]
-    fade_out = np.cos(t)[:, None]
-    out = audio_np.copy()
-    boundary = chunk_n
-    while boundary + fade_n <= n_samples:
-        a_start = boundary - fade_n
-        a_end = boundary
-        b_start = boundary
-        b_end = boundary + fade_n
-        # Blend: a's tail with b's head, both already at full level
-        # (MusicGen's stitch is hard-cut, not overlap-add). We treat the
-        # samples around the boundary as the "split" and apply a short
-        # raised-cosine fade across it to soften any pop.
-        head = out[a_start:a_end] * fade_out
-        tail = out[b_start:b_end] * fade_in
-        # Blend head with the average so we don't lose energy:
-        blended_head = head + tail * 0  # keep head's content faded out
-        # Actually replace [a_start:b_end] with cross-faded blend of original:
-        orig_head = out[a_start:a_end].copy()
-        orig_tail = out[b_start:b_end].copy()
-        out[a_start:a_end] = orig_head * fade_out + orig_tail * fade_in
-        # tail region replaced by faded-in version blended with itself faded-out
-        # (this keeps continuity at the join while not double-counting energy)
-        boundary += chunk_n
+    first_boundary = int(max_duration_s * sample_rate)
+    stride_n = int(extend_stride_s * sample_rate)
+    if n_samples <= first_boundary + fade_n:
+        return audio_np  # one chunk, no boundaries
+
+    # Raised-cosine valley: 1.0 at edges, 0.88 at center, smooth shape.
+    n = 2 * fade_n
+    t = np.linspace(-np.pi, np.pi, n, dtype=np.float32)
+    valley = 1.0 - 0.06 * (1 + np.cos(t))  # → [0.88, 1.0, 0.88]
+    if audio_np.ndim == 2:
+        valley = valley[:, None]
+
+    out = np.copy(audio_np)
+    boundary = first_boundary
+    count = 0
+    while boundary + fade_n < n_samples:
+        s = boundary - fade_n
+        e = boundary + fade_n
+        if s >= 0:
+            out[s:e] = out[s:e] * valley
+            count += 1
+        boundary += stride_n
+    print(f"[cookup] de-click envelope applied at {count} stitch boundary point(s)",
+          flush=True)
     return out
 
 

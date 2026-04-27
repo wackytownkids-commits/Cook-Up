@@ -125,10 +125,12 @@ $('#pick-songs').addEventListener('click', async () => {
 function renderSongs() {
   const list = $('#song-list');
   list.innerHTML = '';
-  for (const s of state.songs) {
+  state.songs.forEach((s, i) => {
     const li = document.createElement('li');
     const name = document.createElement('span');
-    name.textContent = s.name;
+    // First ingredient is the one MusicGen actually uses; mark it.
+    name.textContent = (i === 0 ? '★ ' : '') + s.name;
+    if (i === 0) name.title = 'This is the melody reference MusicGen uses';
     const rm = document.createElement('button');
     rm.className = 'rm'; rm.textContent = '✕'; rm.title = 'Remove';
     rm.addEventListener('click', () => {
@@ -137,7 +139,10 @@ function renderSongs() {
     });
     li.appendChild(name); li.appendChild(rm);
     list.appendChild(li);
-  }
+  });
+  // Surface the "first-only" note when there are 2+ ingredients.
+  const note = document.getElementById('ingredient-note');
+  if (note) note.classList.toggle('hidden', state.songs.length < 2);
 }
 
 // ==================== WAV recorder (mic -> 16-bit PCM blob) ====================

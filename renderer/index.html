@@ -44,6 +44,11 @@
           <button id="record-vocal" class="ghost">&#127908; Record</button>
         </div>
         <ul id="song-list" class="songs"></ul>
+        <div id="ingredient-note" class="muted small hidden">
+          <b>Note:</b> MusicGen-Melody only uses the <b>first</b> ingredient as
+          melody conditioning &mdash; additional files are ignored. Reorder by
+          removing and re-adding if you want a different one to drive the melody.
+        </div>
         <div id="recorder-status" class="muted small hidden"></div>
       </section>
 
@@ -77,9 +82,12 @@
           </div>
           <div>
             <label class="lbl">Cook time <span class="muted">(seconds, &le;30 sounds best)</span></label>
-            <input id="duration" type="number" min="4" max="120" value="15" step="1" />
-            <div id="duration-warn" class="muted small hidden" style="color:#f59e0b">
-              Long durations on CPU can take 15+ minutes. Try 30s first.
+            <input id="duration" type="number" min="4" max="600" value="15" step="1" />
+            <div id="duration-warn" class="muted small hidden" style="color:#f59e0b; line-height:1.4;">
+              <b>Heads up:</b> durations &gt;60s use sliding-window stitching
+              (model regenerates every 18s with the prior chunk as primer).
+              Quality degrades past 30s on CPU. Expect 15&ndash;25 min wall-time
+              for &gt;120s. The Cancel button works during cook.
             </div>
           </div>
         </div>
