@@ -6,7 +6,9 @@ const { app, BrowserWindow, ipcMain, dialog, shell, nativeImage } = require('ele
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
+const fetch = require('node-fetch');
 
 const { autoUpdater } = require('electron-updater');
 const log = require('electron-log');
@@ -24,23 +26,142 @@ const store = new Store({
     serverPort: 7781,
     inputDeviceId: '',
     proEnabled: false,
-    licenseKey: ''
+    licenseKey: '',
+    licenseValidatedAt: '',  // ISO timestamp of last successful Gumroad verify
+    licenseHash: '',         // sha256 of the trimmed key, used to detect changes
+    licenseEmail: '',        // buyer email from purchase response, for support
   }
 });
 
-// Stub license validator. Real wiring to a payment provider (Gumroad,
-// Lemon Squeezy, Polar) lands when we pick one. Until then, any key
-// matching KU-PRO-{16 alphanumeric chars} unlocks Pro. The dev toggle
-// in Settings (Ctrl+Shift+P) bypasses this entirely for self-testing.
-function validateLicense(key) {
-  if (!key) return false;
-  return /^KU-PRO-[A-Za-z0-9]{16}$/.test(String(key).trim());
+// ---------- Gumroad license validation ----------
+// Pattern: online verify on save -> cache the validatedAt timestamp.
+// Re-verify online whenever the cache is older than ONLINE_RECHECK_DAYS.
+// If the network is unreachable, allow Pro to keep working until the
+// cache is older than OFFLINE_GRACE_DAYS - then fall back to Free and
+// surface a toast prompting re-verify.
+
+const GUMROAD_PRODUCT_ID = 'isHPZgjCdwO1DbDJdN7ExQ==';
+const GUMROAD_VERIFY_URL = 'https://api.gumroad.com/v2/licenses/verify';
+const ONLINE_RECHECK_DAYS = 7;
+const OFFLINE_GRACE_DAYS = 30;
+const LEGACY_STUB_KEY_RE = /^KU-PRO-[A-Za-z0-9]{16}$/;
+
+function sha256(s) {
+  return crypto.createHash('sha256').update(String(s)).digest('hex');
+}
+
+function daysSince(iso) {
+  if (!iso) return Infinity;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return Infinity;
+  return (Date.now() - t) / (1000 * 60 * 60 * 24);
+}
+
+async function gumroadVerify(licenseKey, incrementUses) {
+  const body = new URLSearchParams({
+    product_id: GUMROAD_PRODUCT_ID,
+    license_key: String(licenseKey || '').trim(),
+    increment_uses_count: incrementUses ? 'true' : 'false',
+  });
+  try {
+    const res = await fetch(GUMROAD_VERIFY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      timeout: 10000,
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
+  } catch (err) {
+    log.warn('gumroad verify network error', err && err.message);
+    return { networkError: true, error: String(err && err.message || err) };
+  }
+}
+
+// Verify a key against Gumroad and persist the result. Decides whether
+// to bump Gumroad's `uses` counter by hashing the key — the counter is
+// only bumped the first time we see a given key on this machine.
+async function validateAndStoreLicense(rawKey) {
+  const key = String(rawKey || '').trim();
+  if (!key) {
+    return { ok: false, message: 'Enter a license key first.' };
+  }
+  const newHash = sha256(key);
+  const incrementUses = newHash !== store.get('licenseHash');
+  const r = await gumroadVerify(key, incrementUses);
+  if (r.networkError) {
+    return { ok: false, networkError: true,
+             message: "Couldn't reach Gumroad. Check your internet and try again." };
+  }
+  const data = r.data || {};
+  if (!r.ok || !data.success) {
+    return { ok: false,
+             message: data.message || 'License key is not valid for this product.' };
+  }
+  const purchase = data.purchase || {};
+  if (purchase.refunded) {
+    return { ok: false, message: 'This license was refunded.' };
+  }
+  if (purchase.disputed) {
+    return { ok: false, message: 'This license is disputed.' };
+  }
+  // Success: persist.
+  store.set('licenseKey', key);
+  store.set('licenseHash', newHash);
+  store.set('licenseValidatedAt', new Date().toISOString());
+  store.set('licenseEmail', purchase.email || '');
+  return { ok: true, email: purchase.email || '', uses: data.uses };
+}
+
+async function startupRevalidate() {
+  const key = store.get('licenseKey');
+  if (!key) return;
+  // Migrate v1.1.4 stub keys: if it looks like KU-PRO-{16} and was never
+  // backed by a real Gumroad verify (no validatedAt, or validatedAt was
+  // never set because v1.1.4 didn't write one), silently clear it.
+  if (LEGACY_STUB_KEY_RE.test(key) && !store.get('licenseValidatedAt')) {
+    log.info('clearing v1.1.4 stub license key on first v1.1.5+ launch');
+    store.set('licenseKey', '');
+    store.set('licenseHash', '');
+    return;
+  }
+  const age = daysSince(store.get('licenseValidatedAt'));
+  if (age < ONLINE_RECHECK_DAYS) return;  // cache still fresh
+  const r = await gumroadVerify(key, false);
+  if (r.networkError || !r.ok || !(r.data && r.data.success)) {
+    // Online failed. If we're past the offline grace period, surface a
+    // toast so the user knows they need to re-verify.
+    if (age > OFFLINE_GRACE_DAYS) {
+      sendToRenderer('license:needsReverify', { lastValidatedAt: store.get('licenseValidatedAt') });
+    }
+    return;
+  }
+  // Online succeeded - extend the cache.
+  store.set('licenseValidatedAt', new Date().toISOString());
 }
 
 function recomputeProState() {
-  const dev = store.get('proEnabled');
-  const keyValid = validateLicense(store.get('licenseKey'));
-  return Boolean(dev || keyValid);
+  // Dev backdoor wins over everything.
+  if (store.get('proEnabled')) return true;
+  const key = store.get('licenseKey');
+  if (!key) return false;
+  // Legacy stubs are already cleared in startupRevalidate, but defend
+  // here for any code path that runs before that.
+  if (LEGACY_STUB_KEY_RE.test(key) && !store.get('licenseValidatedAt')) return false;
+  const age = daysSince(store.get('licenseValidatedAt'));
+  return age < OFFLINE_GRACE_DAYS;
+}
+
+function licensePublicSummary() {
+  const key = store.get('licenseKey');
+  const validatedAt = store.get('licenseValidatedAt');
+  if (!key || !validatedAt) return null;
+  if (LEGACY_STUB_KEY_RE.test(key) && !validatedAt) return null;
+  return {
+    last4: key.length >= 4 ? key.slice(-4) : key,
+    validatedAt,
+    email: store.get('licenseEmail') || '',
+  };
 }
 
 const {
@@ -194,6 +315,9 @@ app.whenReady().then(() => {
   if (app.isPackaged) {
     autoUpdater.checkForUpdatesAndNotify().catch((err) => log.warn('Update check failed', err));
   }
+  // Quietly re-verify the cached license against Gumroad if our cached
+  // validation is more than a week old. This is fire-and-forget.
+  startupRevalidate().catch((err) => log.warn('License revalidate failed', err));
 });
 app.on('window-all-closed', () => {
   stopPythonServer();
@@ -256,30 +380,45 @@ ipcMain.handle('app:version', () => app.getVersion());
 
 // ---------- IPC ----------
 
-ipcMain.handle('settings:get', () => ({
-  outputDir: store.get('outputDir'),
-  pythonPath: store.get('pythonPath'),
-  serverPort: store.get('serverPort'),
-  inputDeviceId: store.get('inputDeviceId'),
-  proEnabled: recomputeProState(),
-  licenseKey: store.get('licenseKey'),
-  // Surface dev-toggle separately from the effective pro state so the
-  // settings dialog can show "Plan: Pro (dev)" vs "Plan: Pro (license)".
-  proSource: store.get('proEnabled') ? 'dev'
-            : (validateLicense(store.get('licenseKey')) ? 'license' : 'free')
-}));
+ipcMain.handle('settings:get', () => {
+  const dev = !!store.get('proEnabled');
+  const license = licensePublicSummary();
+  const pro = recomputeProState();
+  let proSource = 'free';
+  if (dev) proSource = 'dev';
+  else if (pro && license) proSource = 'license';
+  return {
+    outputDir: store.get('outputDir'),
+    pythonPath: store.get('pythonPath'),
+    serverPort: store.get('serverPort'),
+    inputDeviceId: store.get('inputDeviceId'),
+    proEnabled: pro,
+    proSource,
+    license,  // null when not activated, else { last4, validatedAt, email }
+  };
+});
 
-ipcMain.handle('app:setLicense', (_evt, key) => {
-  const trimmed = String(key || '').trim();
-  store.set('licenseKey', trimmed);
-  const valid = validateLicense(trimmed);
-  return { valid, proEnabled: recomputeProState() };
+ipcMain.handle('app:setLicense', async (_evt, key) => {
+  const result = await validateAndStoreLicense(key);
+  return {
+    ...result,
+    proEnabled: recomputeProState(),
+    license: licensePublicSummary(),
+  };
+});
+
+ipcMain.handle('app:deactivateLicense', () => {
+  store.set('licenseKey', '');
+  store.set('licenseHash', '');
+  store.set('licenseValidatedAt', '');
+  store.set('licenseEmail', '');
+  return { proEnabled: recomputeProState() };
 });
 
 ipcMain.handle('app:toggleDevPro', () => {
   // Dev-only backdoor. Hidden behind Ctrl+Shift+P in the Settings dialog.
-  // No UI affordance points at it; it's discoverable from this changelog
-  // / source code. Do not advertise.
+  // No UI affordance points at it; discoverable from source. Don't
+  // advertise it. Bypasses the Gumroad path entirely.
   const next = !store.get('proEnabled');
   store.set('proEnabled', next);
   return { proEnabled: recomputeProState(), dev: next };

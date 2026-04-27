@@ -43,7 +43,13 @@ contextBridge.exposeInMainWorld('api', {
 
   // Pro tier (license / dev toggle)
   setLicense: (key) => ipcRenderer.invoke('app:setLicense', key),
+  deactivateLicense: () => ipcRenderer.invoke('app:deactivateLicense'),
   toggleDevPro: () => ipcRenderer.invoke('app:toggleDevPro'),
+  onLicenseNeedsReverify: (cb) => {
+    const listener = (_evt, payload) => cb(payload);
+    ipcRenderer.on('license:needsReverify', listener);
+    return () => ipcRenderer.removeListener('license:needsReverify', listener);
+  },
 
   // Auto-updater
   getVersion: () => ipcRenderer.invoke('app:version'),

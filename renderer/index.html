@@ -338,10 +338,23 @@
         Pro unlocks: Voice &rarr; MIDI, long-form generation (&gt;60s), Full Song
         mode (coming in v1.2.0).
       </p>
-      <div class="row">
-        <input id="s-license" type="text" placeholder="License key (KU-PRO-...)" />
-        <button id="s-license-save" class="ghost">Save</button>
+
+      <!-- Inactive: show input + save -->
+      <div id="license-enter">
+        <div class="row">
+          <input id="s-license" type="text" placeholder="License key from your Gumroad receipt" />
+          <button id="s-license-save" class="ghost">Verify &amp; activate</button>
+        </div>
       </div>
+
+      <!-- Active: show last4 + validated time + deactivate -->
+      <div id="license-manage" class="hidden">
+        <div class="row">
+          <span class="muted small" id="license-summary"></span>
+          <button id="s-license-deactivate" class="ghost" style="margin-left:auto;">Deactivate</button>
+        </div>
+      </div>
+
       <div id="s-license-msg" class="muted small"></div>
 
       <hr style="border:none; border-top:1px solid rgba(255,255,255,0.06); margin:12px 0;" />

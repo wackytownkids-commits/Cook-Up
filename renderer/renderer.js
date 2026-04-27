@@ -93,25 +93,94 @@ document.getElementById('vm-upgrade').addEventListener('click', openUpgradeModal
 document.getElementById('vm-learn').addEventListener('click', openUpgradeModal);
 document.getElementById('plan-upgrade').addEventListener('click', openUpgradeModal);
 
-// License key save.
+function fmtRelativeDays(iso) {
+  if (!iso) return '';
+  const days = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400000));
+  if (days < 1) return 'today';
+  if (days === 1) return 'yesterday';
+  return days + ' days ago';
+}
+
+function renderLicenseSection(license) {
+  const enter = document.getElementById('license-enter');
+  const manage = document.getElementById('license-manage');
+  const summary = document.getElementById('license-summary');
+  const planUpgrade = document.getElementById('plan-upgrade');
+  if (license) {
+    enter.classList.add('hidden');
+    manage.classList.remove('hidden');
+    if (planUpgrade) planUpgrade.classList.add('hidden');
+    const emailBit = license.email ? ` for <b>${license.email}</b>` : '';
+    summary.innerHTML =
+      `Activated${emailBit} &middot; key ending in <b>${license.last4}</b> ` +
+      `&middot; verified <b>${fmtRelativeDays(license.validatedAt)}</b>`;
+  } else {
+    enter.classList.remove('hidden');
+    manage.classList.add('hidden');
+    if (planUpgrade && !state.proEnabled) planUpgrade.classList.remove('hidden');
+    summary.innerHTML = '';
+  }
+}
+
 document.getElementById('s-license-save').addEventListener('click', async () => {
   const key = document.getElementById('s-license').value;
   const msg = document.getElementById('s-license-msg');
-  const r = await window.api.setLicense(key);
-  if (r.valid) {
-    msg.textContent = 'License accepted - Pro unlocked.';
-    msg.style.color = '#86efac';
-  } else if (key && key.trim()) {
-    msg.textContent = 'That key didn\'t validate. Check the format (KU-PRO-...).';
+  const btn = document.getElementById('s-license-save');
+  if (!key.trim()) {
+    msg.textContent = 'Paste a license key first.';
     msg.style.color = '#ffb1bc';
-  } else {
-    msg.textContent = '';
+    return;
   }
-  // Refresh state from main and re-apply gates.
+  msg.textContent = 'Verifying with Gumroad...';
+  msg.style.color = '#9ca3af';
+  btn.disabled = true;
+  try {
+    const r = await window.api.setLicense(key);
+    if (r.ok) {
+      msg.innerHTML = '&#10003; Pro unlocked. Thanks for buying.';
+      msg.style.color = '#86efac';
+      document.getElementById('s-license').value = '';
+      // Auto-close any leftover info modal.
+      document.getElementById('info-modal').classList.add('hidden');
+    } else if (r.networkError) {
+      msg.textContent = r.message;
+      msg.style.color = '#fbbf24';
+    } else {
+      msg.textContent = r.message;
+      msg.style.color = '#ffb1bc';
+    }
+  } catch (e) {
+    msg.textContent = 'Unexpected error: ' + (e.message || e);
+    msg.style.color = '#ffb1bc';
+  } finally {
+    btn.disabled = false;
+  }
   const s = await window.api.getSettings();
   state.proEnabled = !!s.proEnabled;
   state.proSource = s.proSource || 'free';
   applyProGates();
+  renderLicenseSection(s.license);
+});
+
+document.getElementById('s-license-deactivate').addEventListener('click', async () => {
+  const ok = confirm(
+    'Deactivate this Pro license on this machine? The key stays valid; ' +
+    'you can re-activate it here or on another machine.'
+  );
+  if (!ok) return;
+  await window.api.deactivateLicense();
+  document.getElementById('s-license-msg').textContent = 'License deactivated on this machine.';
+  document.getElementById('s-license-msg').style.color = '#9ca3af';
+  const s = await window.api.getSettings();
+  state.proEnabled = !!s.proEnabled;
+  state.proSource = s.proSource || 'free';
+  applyProGates();
+  renderLicenseSection(s.license);
+});
+
+// Background re-validation past the offline grace period: tell the user.
+window.api.onLicenseNeedsReverify((p) => {
+  showDevToast('Pro license needs re-verifying - open Settings to retry');
 });
 
 // Dev backdoor: Ctrl+Shift+P while Settings dialog is open toggles dev Pro.
@@ -188,11 +257,14 @@ async function openSettings() {
   $('#s-py').value = s.pythonPath || '';
   $('#s-port').value = s.serverPort || 7781;
   $('#s-out').value = s.outputDir || '';
-  $('#s-license').value = s.licenseKey || '';
+  // We never echo back the activated key for two reasons: it's secret-ish,
+  // and showing it confuses the manage/enter UX. Manage mode handles display.
+  $('#s-license').value = '';
   state.inputDeviceId = s.inputDeviceId || '';
   state.proEnabled = !!s.proEnabled;
   state.proSource = s.proSource || 'free';
   applyProGates();
+  renderLicenseSection(s.license);
   document.getElementById('s-license-msg').textContent = '';
   await refreshMicList();
   try { $('#s-version').textContent = 'v' + (await window.api.getVersion()); } catch (_) {}
