@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('api', {
 
   // Auto-updater
   getVersion: () => ipcRenderer.invoke('app:version'),
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
   quitAndInstall: () => ipcRenderer.invoke('updater:quitAndInstall'),
   onUpdateStatus: (cb) => {

@@ -378,6 +378,15 @@ ipcMain.handle('updater:quitAndInstall', () => {
 
 ipcMain.handle('app:version', () => app.getVersion());
 
+ipcMain.handle('app:openExternal', (_evt, url) => {
+  // Only allow http(s) origins; never let the renderer push file:// or
+  // anything else through this IPC. shell.openExternal is otherwise a
+  // bit of a security footgun if abused.
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return false;
+  shell.openExternal(url);
+  return true;
+});
+
 // ---------- IPC ----------
 
 ipcMain.handle('settings:get', () => {

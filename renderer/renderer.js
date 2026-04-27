@@ -63,14 +63,25 @@ function applyProGates() {
   if (upgrade) upgrade.classList.toggle('hidden', pro);
 }
 
-function showInfoModal(title, body) {
-  const m = document.getElementById('info-modal');
-  if (title) document.getElementById('info-title').textContent = title;
-  if (body) document.getElementById('info-body').innerHTML = body;
-  m.classList.remove('hidden');
+// Real Buy Pro modal. Replaces the v1.1.4 "coming soon" placeholder.
+// TODO: replace https://gumroad.com/l/cookup-pro with the user's
+// confirmed Gumroad permalink once they share it. Hotfix patches just
+// this string.
+const GUMROAD_PRODUCT_URL = 'https://gumroad.com/l/cookup-pro';
+
+function openBuyModal() {
+  document.getElementById('buy-aftermath').classList.add('hidden');
+  document.getElementById('buy-modal').classList.remove('hidden');
 }
-document.getElementById('info-close').addEventListener('click', () => {
-  document.getElementById('info-modal').classList.add('hidden');
+function closeBuyModal() {
+  document.getElementById('buy-modal').classList.add('hidden');
+}
+document.getElementById('buy-close').addEventListener('click', closeBuyModal);
+document.getElementById('buy-go').addEventListener('click', async () => {
+  await window.api.openExternal(GUMROAD_PRODUCT_URL);
+  // Don't auto-close: surface the "check your email" line so the user
+  // knows what to do when they come back.
+  document.getElementById('buy-aftermath').classList.remove('hidden');
 });
 
 function showDevToast(msg) {
@@ -83,12 +94,9 @@ document.getElementById('dev-toast-dismiss').addEventListener('click', () => {
   document.getElementById('dev-toast').classList.add('hidden');
 });
 
-// Upgrade buttons (Stove, Voice->MIDI gate, Settings) all open the same
-// info modal. Real payment integration lives in v1.2+.
-function openUpgradeModal() {
-  showInfoModal('Pro coming soon',
-    'Cook Up Pro is in development. For now, email <b>cory@cookup.app</b> if you want early access, or use the dev toggle in Settings (<i>Ctrl+Shift+P</i>) to test Pro features locally.');
-}
+// Upgrade buttons (Stove, Voice->MIDI gate, Settings) all route to the
+// same Buy modal.
+function openUpgradeModal() { openBuyModal(); }
 document.getElementById('vm-upgrade').addEventListener('click', openUpgradeModal);
 document.getElementById('vm-learn').addEventListener('click', openUpgradeModal);
 document.getElementById('plan-upgrade').addEventListener('click', openUpgradeModal);
@@ -140,8 +148,8 @@ document.getElementById('s-license-save').addEventListener('click', async () => 
       msg.innerHTML = '&#10003; Pro unlocked. Thanks for buying.';
       msg.style.color = '#86efac';
       document.getElementById('s-license').value = '';
-      // Auto-close any leftover info modal.
-      document.getElementById('info-modal').classList.add('hidden');
+      // Auto-close the Buy modal if the user happened to leave it open.
+      closeBuyModal();
     } else if (r.networkError) {
       msg.textContent = r.message;
       msg.style.color = '#fbbf24';

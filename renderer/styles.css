@@ -741,3 +741,83 @@ input.pro-locked {
 
 /* Reuse update-toast styling for the dev toast (tinted slightly different). */
 #dev-toast { border-color: rgba(110, 200, 255, 0.35); }
+
+/* ---------- Buy Pro modal ---------- */
+.buy-modal-card {
+  max-width: 460px;
+  background: linear-gradient(180deg, #1a1721 0%, var(--kitchen-slate) 100%);
+  border: 1px solid rgba(217, 119, 6, 0.35);
+  padding: 22px 22px 16px;
+  text-align: center;
+}
+.buy-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.12);
+  border: 1px solid rgba(217, 119, 6, 0.4);
+  color: var(--kitchen-cream);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.4px;
+  margin-bottom: 8px;
+}
+.buy-badge-pro {
+  color: var(--kitchen-orange-soft);
+  margin-left: 4px;
+}
+.buy-title {
+  margin: 6px 0 4px;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--kitchen-cream);
+  letter-spacing: -0.3px;
+}
+.buy-price-line {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #c9a16a;
+}
+.buy-pitch {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto 16px;
+  text-align: left;
+  max-width: 380px;
+}
+.buy-pitch li {
+  position: relative;
+  padding: 6px 0 6px 22px;
+  font-size: 13px;
+  color: #d8d8de;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.buy-pitch li:last-child { border-bottom: none; }
+.buy-pitch li::before {
+  content: "🔥";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  font-size: 12px;
+}
+.buy-pitch li b { color: var(--kitchen-cream); }
+.buy-go {
+  width: 100%;
+  margin: 4px 0 14px;
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(217, 119, 6, 0.3);
+}
+.buy-go:hover { transform: translateY(-1px); box-shadow: 0 8px 22px rgba(217, 119, 6, 0.45); }
+.buy-aftermath {
+  background: rgba(217, 119, 6, 0.08);
+  border: 1px solid rgba(217, 119, 6, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  line-height: 1.5;
+  color: var(--kitchen-cream);
+}

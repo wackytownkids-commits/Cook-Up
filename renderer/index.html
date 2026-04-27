@@ -403,17 +403,31 @@
     <button id="update-dismiss" class="icon-btn" title="Dismiss">&times;</button>
   </div>
 
-  <div id="info-modal" class="modal hidden">
-    <div class="modal-card">
-      <h3 id="info-title">Pro coming soon</h3>
-      <p id="info-body" class="muted small">
-        Cook Up Pro is in development. For now, email
-        <b>cory@cookup.app</b> if you want early access, or use the dev
-        toggle in Settings (<i>Ctrl+Shift+P</i>) to test Pro features
-        locally.
+  <div id="buy-modal" class="modal hidden">
+    <div class="modal-card buy-modal-card">
+      <div class="buy-badge">Cookup <span class="buy-badge-pro">PRO</span></div>
+      <h3 class="buy-title">Cook Up Pro &mdash; $20</h3>
+      <p class="buy-price-line">$20 one-time. Yours forever. No subscription.</p>
+
+      <ul class="buy-pitch">
+        <li><b>Voice &rarr; MIDI</b> &mdash; sing, hum, or beatbox into any instrument or drum kit</li>
+        <li><b>Long-form generation</b> &mdash; over 60 seconds</li>
+        <li>Full Song mode with vocals <span class="muted">(coming soon)</span></li>
+        <li>Stem separation <span class="muted">(coming soon)</span></li>
+        <li>VST/AU plugin loading <span class="muted">(coming soon)</span></li>
+        <li>Mastering presets <span class="muted">(coming soon)</span></li>
+      </ul>
+
+      <button id="buy-go" class="go buy-go">Buy on Gumroad &rarr;</button>
+
+      <p id="buy-aftermath" class="muted small hidden buy-aftermath">
+        License key sent to your email after purchase. Paste it in
+        <b>Settings &rarr; License key</b> to unlock Pro.
       </p>
+      <p class="muted small">Already bought it? Paste your license key in <b>Settings</b>.</p>
+
       <div class="row end">
-        <button id="info-close" class="ghost">Close</button>
+        <button id="buy-close" class="ghost">Close</button>
       </div>
     </div>
   </div>
