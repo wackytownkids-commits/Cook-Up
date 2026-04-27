@@ -1,6 +1,6 @@
 {
   "name": "cookup",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Cookup - prompt + reference songs into an AI beat you drag straight into your DAW.",
   "main": "main.js",
   "scripts": {
