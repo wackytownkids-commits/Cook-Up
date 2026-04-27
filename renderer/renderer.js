@@ -64,10 +64,7 @@ function applyProGates() {
 }
 
 // Real Buy Pro modal. Replaces the v1.1.4 "coming soon" placeholder.
-// TODO: replace https://gumroad.com/l/cookup-pro with the user's
-// confirmed Gumroad permalink once they share it. Hotfix patches just
-// this string.
-const GUMROAD_PRODUCT_URL = 'https://gumroad.com/l/cookup-pro';
+const GUMROAD_PRODUCT_URL = 'https://wackytown.gumroad.com/l/cookuppro';
 
 function openBuyModal() {
   document.getElementById('buy-aftermath').classList.add('hidden');
