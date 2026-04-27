@@ -22,6 +22,19 @@ const state = {
 // uses the user's choice without them having to open Settings first.
 window.api.getSettings().then((s) => { state.inputDeviceId = s.inputDeviceId || ''; });
 
+// Show a soft cap warning when the user types a long Cook time, so they
+// know they're heading into 15+ minute territory.
+const durationInput = document.getElementById('duration');
+const durationWarn = document.getElementById('duration-warn');
+if (durationInput && durationWarn) {
+  const updateDurationWarn = () => {
+    const v = parseInt(durationInput.value, 10) || 0;
+    durationWarn.classList.toggle('hidden', v <= 60);
+  };
+  durationInput.addEventListener('input', updateDurationWarn);
+  updateDurationWarn();
+}
+
 // ==================== Tabs ====================
 
 $$('.tab').forEach((b) => {

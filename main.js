@@ -274,14 +274,41 @@ ipcMain.handle('dialog:pickOutputDir', async () => {
 ipcMain.handle('server:health', async () => checkHealth());
 ipcMain.handle('server:warmup', async () => warmup());
 
-ipcMain.handle('beat:generate', async (_evt, payload) => {
+// Track the AbortController for the in-flight long job, if any. Cancel
+// fires both the cooperative HTTP /cancel (the primary path — Python
+// raises CancelledByUser inside the generation loop) AND aborts the
+// fetch as a fallback in case the connection itself wedges (e.g. Python
+// crashes silently and the socket never returns).
+let activeJobController = null;
+
+function withJobController(handler) {
+  return async (...args) => {
+    const ctrl = new AbortController();
+    activeJobController = ctrl;
+    try {
+      return await handler(ctrl.signal, ...args);
+    } finally {
+      if (activeJobController === ctrl) activeJobController = null;
+    }
+  };
+}
+
+ipcMain.handle('beat:generate', withJobController(async (signal, _evt, payload) => {
   const onProgress = (msg) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('beat:progress', msg);
   };
-  return generateBeat({ ...payload, outputDir: store.get('outputDir'), onProgress });
-});
+  return generateBeat({ ...payload, outputDir: store.get('outputDir'), onProgress, signal });
+}));
 
-ipcMain.handle('cook:cancel', async () => cancelJob());
+ipcMain.handle('cook:cancel', async () => {
+  // Cooperative cancel via HTTP (server raises CancelledByUser at next
+  // checkpoint). Then abort the fetch so we don't await a dead socket.
+  const result = await cancelJob();
+  if (activeJobController) {
+    try { activeJobController.abort(); } catch (_) {}
+  }
+  return result;
+});
 
 ipcMain.handle('beat:reveal', async (_evt, filePath) => {
   if (filePath && fs.existsSync(filePath)) shell.showItemInFolder(filePath);
@@ -309,23 +336,21 @@ ipcMain.handle('voice:save', async (_evt, { bytes, suffix = '.wav' }) => {
   return file;
 });
 
-ipcMain.handle('voice:vocalToMidi', async (_evt, { vocalPath, mode, instrument, isDrums }) => {
+ipcMain.handle('voice:vocalToMidi', withJobController(async (signal, _evt, { vocalPath, mode, instrument, isDrums }) => {
   return vocalToMidi({
-    vocalPath,
-    mode,
-    instrument,
-    isDrums,
+    vocalPath, mode, instrument, isDrums,
     outputDir: store.get('outputDir'),
+    signal,
   });
-});
+}));
 
-ipcMain.handle('fx:apply', async (_evt, { inputPath, chain }) => {
+ipcMain.handle('fx:apply', withJobController(async (signal, _evt, { inputPath, chain }) => {
   return applyEffects({
-    inputPath,
-    chain,
+    inputPath, chain,
     outputDir: store.get('outputDir'),
+    signal,
   });
-});
+}));
 
 ipcMain.handle('fx:analyzeVocal', async (_evt, { inputPath }) => {
   return analyzeVocal({ inputPath });

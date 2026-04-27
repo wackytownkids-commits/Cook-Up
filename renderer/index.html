@@ -78,6 +78,9 @@
           <div>
             <label class="lbl">Cook time <span class="muted">(seconds, &le;30 sounds best)</span></label>
             <input id="duration" type="number" min="4" max="120" value="15" step="1" />
+            <div id="duration-warn" class="muted small hidden" style="color:#f59e0b">
+              Long durations on CPU can take 15+ minutes. Try 30s first.
+            </div>
           </div>
         </div>
       </section>
